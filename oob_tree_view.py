@@ -1,13 +1,12 @@
 from PySide6.QtWidgets import (
-    QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
     QMenu,
     QMessageBox,
+    QHeaderView,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import QHeaderView
 from oob_model import OOBData
 import pandas as pd
 
@@ -106,6 +105,7 @@ class OOBTreeWidget(QTreeWidget):
                 strength = row.get("Head Count", "")
                 level_info = self.data.get_hierarchy_level_name_and_index(hierarchy_key)
                 line_num = idx + 2  # +1 for header, +1 for 1-based indexing
+                side = int(row.get("SIDE 1", 0) or 0)
                 
                 items_data.append({
                     'idx': idx,
@@ -114,7 +114,8 @@ class OOBTreeWidget(QTreeWidget):
                     'name': name,
                     'strength': strength,
                     'level_info': level_info,
-                    'line_num': line_num
+                    'line_num': line_num,
+                    'side': side
                 })
                 
             except ValueError as e:
@@ -132,6 +133,7 @@ class OOBTreeWidget(QTreeWidget):
             ])
             
             item.setData(0, Qt.UserRole, data['idx'])
+            self.apply_side_colors(item, data['side'])
 
             # Get parent hierarchy key
             parent_key = self.data.get_parent_key(data['hierarchy_key'])
@@ -153,6 +155,41 @@ class OOBTreeWidget(QTreeWidget):
         
         self.expandToDepth(2)
     
+    def drawRow(self, painter, option, index):
+        item = self.itemFromIndex(index)
+        if item is not None:
+            side_color = item.data(0, Qt.UserRole + 1)
+            if isinstance(side_color, QColor):
+                painter.save()
+                row_rect = option.rect
+                row_rect.setWidth(self.viewport().width() - row_rect.left())
+                painter.fillRect(row_rect, side_color)
+                painter.restore()
+
+        super().drawRow(painter, option, index)
+
+    def apply_side_colors(self, item: QTreeWidgetItem, side: int) -> None:
+        """
+        Apply side-specific background colors to the row.
+
+        Args:
+            item: Tree item to style.
+            side: Side number from the data (1 or 2).
+        """
+        if side == 1:
+            background = QColor("#2c2c40")  # blue for Side 1 (adjusted from 2c2c2c from base stylesheet)
+            foreground = QColor("#ffffff")
+        elif side == 2:
+            background = QColor("#402c2c")  # red for Side 2 (adjusted from 2c2c2c from base stylesheet)
+            foreground = QColor("#ffffff")
+        else:
+            return
+
+        for col in range(self.columnCount()):
+            item.setBackground(col, QBrush(background))
+            item.setForeground(col, QBrush(foreground))
+            item.setData(col, Qt.UserRole + 1, background)
+
     def calculate_total_strength(self, item: QTreeWidgetItem) -> float:
         """
         Recursively calculate total strength of a unit and all its subordinates.
