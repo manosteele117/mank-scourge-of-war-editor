@@ -11,7 +11,83 @@ from PySide6.QtWidgets import (
     QSplitter,
     QMessageBox,
 )
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtCore import Qt
+
+
+def apply_dark_theme(app: QApplication) -> None:
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor("#121212"))
+    palette.setColor(QPalette.WindowText, QColor("#e0e0e0"))
+    palette.setColor(QPalette.Base, QColor("#1a1a1a"))
+    palette.setColor(QPalette.AlternateBase, QColor("#181818"))
+    palette.setColor(QPalette.ToolTipBase, QColor("#e0e0e0"))
+    palette.setColor(QPalette.ToolTipText, QColor("#e0e0e0"))
+    palette.setColor(QPalette.Text, QColor("#e0e0e0"))
+    palette.setColor(QPalette.Button, QColor("#1f1f1f"))
+    palette.setColor(QPalette.ButtonText, QColor("#e0e0e0"))
+    palette.setColor(QPalette.Highlight, QColor("#2979ff"))
+    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.Link, QColor("#64b5f6"))
+
+    app.setPalette(palette)
+    app.setStyleSheet("""
+        QWidget {
+            background: #121212;
+            color: #e0e0e0;
+        }
+
+        QMainWindow, QSplitter, QFrame {
+            background: #121212;
+        }
+
+        QPushButton {
+            background-color: #1f1f1f;
+            color: #e0e0e0;
+            border: 1px solid #333333;
+            padding: 6px 10px;
+            border-radius: 4px;
+        }
+        QPushButton:hover {
+            background-color: #2d2d2d;
+        }
+        QPushButton:pressed {
+            background-color: #383838;
+        }
+
+        QLabel {
+            color: #e0e0e0;
+        }
+
+        QTableWidget, QTreeView {
+            background-color: #161616;
+            alternate-background-color: #1f1f1f;
+            color: #e0e0e0;
+            gridline-color: #333333;
+        }
+
+        QHeaderView::section {
+            background-color: #1f1f1f;
+            color: #e0e0e0;
+            border: 1px solid #333333;
+        }
+
+        QTableWidget QTableCornerButton::section {
+            background-color: #1f1f1f;
+            border: 1px solid #333333;
+        }
+
+        QMenu {
+            background-color: #1f1f1f;
+            color: #e0e0e0;
+            border: 1px solid #333333;
+        }
+
+        QMessageBox {
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+    """)
 
 from oob_model import OOBData
 from oob_validation import OOBValidator
@@ -159,6 +235,7 @@ class OOBViewer(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    apply_dark_theme(app)
 
     # Optional: pass CSV path as command line argument
     csv_path = None

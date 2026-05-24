@@ -35,6 +35,7 @@ class OOBDetailsWidget(QWidget):
         self.details_left.verticalHeader().setVisible(False)
         self.details_left.verticalHeader().setDefaultSectionSize(16)
         self.details_left.setShowGrid(False)
+        self.details_left.setAlternatingRowColors(True)
         self.details_left.itemChanged.connect(self.on_detail_cell_changed)
         
         # Right detail view (Head Count onwards)
@@ -46,6 +47,7 @@ class OOBDetailsWidget(QWidget):
         self.details_right.verticalHeader().setVisible(False)
         self.details_right.verticalHeader().setDefaultSectionSize(16)
         self.details_right.setShowGrid(False)
+        self.details_right.setAlternatingRowColors(True)
         self.details_right.itemChanged.connect(self.on_detail_cell_changed)
         
         self.splitter.addWidget(self.details_left)
@@ -55,6 +57,22 @@ class OOBDetailsWidget(QWidget):
         
         # Layout
         layout = QVBoxLayout(self)
+        self.setStyleSheet("""
+            QTableWidget {
+                background-color: #161616;
+                alternate-background-color: #1f1f1f;
+                color: #e0e0e0;
+                gridline-color: #333333;
+            }
+            QTableWidget::item {
+                color: #e0e0e0;
+            }
+            QHeaderView::section {
+                background-color: #1f1f1f;
+                color: #e0e0e0;
+                border: 1px solid #333333;
+            }
+        """)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.splitter)
         self.setLayout(layout)

@@ -38,23 +38,25 @@ class OOBTreeWidget(QTreeWidget):
         self.itemSelectionChanged.connect(self.on_selection_changed)
         self.setStyleSheet("""QTreeView::item {
             border: 0;
+            background: #161616;
+            color: #e0e0e0;
             }
             QTreeView::item:hover {
-            border: 0;
+            background: #272727;
             }
             QTreeView::item:selected {
-            background: #42A5F5;
-            color: #000000;
+            background: #2979ff;
+            color: #ffffff;
             }
             QTreeView::item:!selected {
-            background: #FFFFFF;
-            color: #000000;
+            background: #161616;
+            color: #e0e0e0;
             }
             QTreeView::branch:selected {
-            background: #42A5F5;
+            background: #2979ff;
             }
             QTreeView::branch:!selected {
-            background: #FFFFFF;
+            background: #161616;
             }
             QTreeView::branch:has-siblings:!adjoins-item {
                 border-image: url(icons/vline.png) 0;
@@ -79,6 +81,7 @@ class OOBTreeWidget(QTreeWidget):
                     border-image: none;
                     image: url(icons/branch-open.png);
             }""")
+        self.setAlternatingRowColors(True)
         
         # Expand first column to fit content
         self.header().setSectionResizeMode(0, QHeaderView.Stretch)
