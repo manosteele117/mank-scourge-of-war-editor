@@ -2,6 +2,7 @@ import sys
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
+    QStyledItemDelegate,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -18,14 +19,14 @@ from PySide6.QtCore import Qt
 def apply_dark_theme(app: QApplication) -> None:
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor("#121212"))
-    palette.setColor(QPalette.WindowText, QColor("#e0e0e0"))
+    palette.setColor(QPalette.WindowText, QColor("#ffffff"))
     palette.setColor(QPalette.Base, QColor("#1a1a1a"))
     palette.setColor(QPalette.AlternateBase, QColor("#181818"))
-    palette.setColor(QPalette.ToolTipBase, QColor("#e0e0e0"))
-    palette.setColor(QPalette.ToolTipText, QColor("#e0e0e0"))
-    palette.setColor(QPalette.Text, QColor("#e0e0e0"))
+    palette.setColor(QPalette.ToolTipBase, QColor("#ffffff"))
+    palette.setColor(QPalette.ToolTipText, QColor("#ffffff"))
+    palette.setColor(QPalette.Text, QColor("#ffffff"))
     palette.setColor(QPalette.Button, QColor("#1f1f1f"))
-    palette.setColor(QPalette.ButtonText, QColor("#e0e0e0"))
+    palette.setColor(QPalette.ButtonText, QColor("#ffffff"))
     palette.setColor(QPalette.Highlight, QColor("#2979ff"))
     palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
     palette.setColor(QPalette.Link, QColor("#64b5f6"))
@@ -34,7 +35,7 @@ def apply_dark_theme(app: QApplication) -> None:
     app.setStyleSheet("""
         QWidget {
             background: #121212;
-            color: #e0e0e0;
+            color: #ffffff;
         }
 
         QMainWindow, QSplitter, QFrame {
@@ -43,7 +44,7 @@ def apply_dark_theme(app: QApplication) -> None:
 
         QPushButton {
             background-color: #1f1f1f;
-            color: #e0e0e0;
+            color: #ffffff;
             border: 1px solid #333333;
             padding: 6px 10px;
             border-radius: 4px;
@@ -56,19 +57,18 @@ def apply_dark_theme(app: QApplication) -> None:
         }
 
         QLabel {
-            color: #e0e0e0;
+            color: #ffffff;
         }
 
         QTableWidget, QTreeView {
-            background-color: #161616;
-            alternate-background-color: #1f1f1f;
-            color: #e0e0e0;
-            gridline-color: #333333;
+            background-color: #2c2c2c;
+            color: #ffffff;
+            gridline-color: #ffffff;
         }
 
         QHeaderView::section {
             background-color: #1f1f1f;
-            color: #e0e0e0;
+            color: #ffffff;
             border: 1px solid #333333;
         }
 
@@ -79,13 +79,13 @@ def apply_dark_theme(app: QApplication) -> None:
 
         QMenu {
             background-color: #1f1f1f;
-            color: #e0e0e0;
+            color: #ffffff;
             border: 1px solid #333333;
         }
 
         QMessageBox {
             background-color: #121212;
-            color: #e0e0e0;
+            color: #ffffff;
         }
     """)
 

@@ -1,10 +1,12 @@
 from PySide6.QtWidgets import (
+    QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
     QMenu,
     QMessageBox,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QHeaderView
 from oob_model import OOBData
 import pandas as pd
@@ -38,26 +40,16 @@ class OOBTreeWidget(QTreeWidget):
         self.itemSelectionChanged.connect(self.on_selection_changed)
         self.setStyleSheet("""QTreeView::item {
             border: 0;
-            background: #161616;
-            color: #e0e0e0;
+            color: #ffffff;
             }
             QTreeView::item:hover {
-            background: #272727;
+            background: #252525;
             }
             QTreeView::item:selected {
             background: #2979ff;
             color: #ffffff;
             }
-            QTreeView::item:!selected {
-            background: #161616;
-            color: #e0e0e0;
-            }
-            QTreeView::branch:selected {
-            background: #2979ff;
-            }
-            QTreeView::branch:!selected {
-            background: #161616;
-            }
+    
             QTreeView::branch:has-siblings:!adjoins-item {
                 border-image: url(icons/vline.png) 0;
             }
@@ -81,8 +73,8 @@ class OOBTreeWidget(QTreeWidget):
                     border-image: none;
                     image: url(icons/branch-open.png);
             }""")
-        self.setAlternatingRowColors(True)
-        
+        #self.setAlternatingRowColors(True)
+
         # Expand first column to fit content
         self.header().setSectionResizeMode(0, QHeaderView.Stretch)
         
@@ -140,7 +132,7 @@ class OOBTreeWidget(QTreeWidget):
             ])
             
             item.setData(0, Qt.UserRole, data['idx'])
-            
+
             # Get parent hierarchy key
             parent_key = self.data.get_parent_key(data['hierarchy_key'])
             
