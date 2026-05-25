@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QHeaderView,
+    QAbstractItemView,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -222,7 +223,54 @@ class OOBTreeWidget(QTreeWidget):
         item.setText(2, display_val)
         
         return total
-    
+
+    def find_item_by_row_index(self, row_index: int) -> QTreeWidgetItem | None:
+        """
+        Find the tree widget item that represents the given data row index.
+        """
+        def _search(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+            if item.data(0, Qt.UserRole) == row_index:
+                return item
+            for i in range(item.childCount()):
+                found = _search(item.child(i))
+                if found is not None:
+                    return found
+            return None
+
+        for i in range(self.topLevelItemCount()):
+            found = _search(self.topLevelItem(i))
+            if found is not None:
+                return found
+        return None
+
+    def select_unit(self, row_index: int) -> None:
+        """
+        Select and scroll to the unit with the given row index.
+        """
+        current = self.currentItem()
+        if current is not None and current.data(0, Qt.UserRole) == row_index:
+            return
+
+        item = self.find_item_by_row_index(row_index)
+        if item is None:
+            return
+
+        # Expand parent chain so the item is visible
+        parent = item.parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
+
+        self.blockSignals(True)
+        try:
+            self.clearSelection()
+            item.setSelected(True)
+            self.setCurrentItem(item)
+        finally:
+            self.blockSignals(False)
+
+        self.scrollToItem(item, QAbstractItemView.PositionAtCenter)
+
     def on_selection_changed(self) -> None:
         """Handle tree selection changes."""
         items = self.selectedItems()

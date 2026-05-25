@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QSizePolicy,
     QFileDialog,
     QLabel,
     QPushButton,
@@ -115,6 +116,8 @@ class OOBViewer(QMainWindow):
 
         # Top controls
         controls_layout = QHBoxLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(8)
 
         self.load_button = QPushButton("Load CSV")
         self.load_button.clicked.connect(self.load_csv_dialog)
@@ -130,10 +133,17 @@ class OOBViewer(QMainWindow):
 
         controls_layout.addStretch()
 
-        self.layout.addLayout(controls_layout)
+        controls_container = QWidget()
+        controls_container.setLayout(controls_layout)
+        controls_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        controls_container.setMaximumHeight(60)
 
-        # Main content splitter (tree, visual, details stacked vertically)
-        self.splitter = QSplitter(Qt.Vertical)
+        self.layout.addWidget(controls_container, 0)
+
+        # Main content split left/right with tree and visual stacked vertically on the left,
+        # and details shown on the right.
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.left_splitter = QSplitter(Qt.Orientation.Vertical)
 
         # Tree view
         self.tree = OOBTreeWidget(self.data)
@@ -142,18 +152,22 @@ class OOBViewer(QMainWindow):
 
         # Visual view (formations visualization)
         self.visual = OOBVisualWidget(self.data)
+        self.visual.unit_selected.connect(self.on_unit_selected)
 
         # Details view
         self.details = OOBDetailsWidget(self.data)
 
-        self.splitter.addWidget(self.tree)
-        self.splitter.addWidget(self.visual)
-        self.splitter.addWidget(self.details)
-        self.splitter.setStretchFactor(0, 3)  # tree
-        self.splitter.setStretchFactor(1, 1)  # visual
-        self.splitter.setStretchFactor(2, 2)  # details
+        self.left_splitter.addWidget(self.tree)
+        self.left_splitter.addWidget(self.visual)
+        self.left_splitter.setStretchFactor(0, 1)  # tree
+        self.left_splitter.setStretchFactor(1, 1)  # visual
 
-        self.layout.addWidget(self.splitter)
+        self.main_splitter.addWidget(self.left_splitter)
+        self.main_splitter.addWidget(self.details)
+        self.main_splitter.setStretchFactor(0, 3)  # left stack
+        self.main_splitter.setStretchFactor(1, 2)  # details
+
+        self.layout.addWidget(self.main_splitter, 1)
 
         if csv_path:
             self.load_csv(csv_path)
@@ -222,9 +236,11 @@ class OOBViewer(QMainWindow):
             )
 
     def on_unit_selected(self, row_index: int):
-        """Handle unit selection from tree."""
+        """Handle unit selection from tree or visual view."""
+        self.tree.select_unit(row_index)
         self.details.populate(row_index)
         self.visual.populate(row_index)
+        self.visual.highlight_unit(row_index)
 
     def on_unit_deleted(self, num_deleted: int):
         """Handle unit deletion from tree."""

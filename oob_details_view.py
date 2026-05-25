@@ -2,11 +2,9 @@ from PySide6.QtWidgets import (
     QWidget,
     QTableWidget,
     QTableWidgetItem,
-    QSplitter,
     QVBoxLayout,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHeaderView
 from oob_model import OOBData
 import pandas as pd
 
@@ -14,7 +12,7 @@ import pandas as pd
 class OOBDetailsWidget(QWidget):
     """
     Widget for displaying and editing unit detail information.
-    Uses a horizontal splitter with left and right tables.
+    Uses a single table for all fields.
     """
     
     def __init__(self, data: OOBData, parent=None):
@@ -23,37 +21,17 @@ class OOBDetailsWidget(QWidget):
         self.data = data
         self.current_row_index = None
         
-        # Create splitter for left/right detail views
-        self.splitter = QSplitter(Qt.Horizontal)
-        
-        # Left detail view (before Head Count)
-        self.details_left = QTableWidget()
-        self.details_left.setColumnCount(2)
-        self.details_left.setHorizontalHeaderLabels(["Field", "Value"])
-        self.details_left.horizontalHeader().setStretchLastSection(True)
-        self.details_left.horizontalHeader().setDefaultSectionSize(100)
-        self.details_left.verticalHeader().setVisible(False)
-        self.details_left.verticalHeader().setDefaultSectionSize(16)
-        self.details_left.setShowGrid(False)
-        self.details_left.setAlternatingRowColors(True)
-        self.details_left.itemChanged.connect(self.on_detail_cell_changed)
-        
-        # Right detail view (Head Count onwards)
-        self.details_right = QTableWidget()
-        self.details_right.setColumnCount(2)
-        self.details_right.setHorizontalHeaderLabels(["Field", "Value"])
-        self.details_right.horizontalHeader().setStretchLastSection(True)
-        self.details_right.horizontalHeader().setDefaultSectionSize(100)
-        self.details_right.verticalHeader().setVisible(False)
-        self.details_right.verticalHeader().setDefaultSectionSize(16)
-        self.details_right.setShowGrid(False)
-        self.details_right.setAlternatingRowColors(True)
-        self.details_right.itemChanged.connect(self.on_detail_cell_changed)
-        
-        self.splitter.addWidget(self.details_left)
-        self.splitter.addWidget(self.details_right)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 1)
+        # Single detail table
+        self.details_table = QTableWidget()
+        self.details_table.setColumnCount(2)
+        self.details_table.setHorizontalHeaderLabels(["Field", "Value"])
+        self.details_table.horizontalHeader().setStretchLastSection(True)
+        self.details_table.horizontalHeader().setDefaultSectionSize(100)
+        self.details_table.verticalHeader().setVisible(False)
+        self.details_table.verticalHeader().setDefaultSectionSize(16)
+        self.details_table.setShowGrid(False)
+        self.details_table.setAlternatingRowColors(True)
+        self.details_table.itemChanged.connect(self.on_detail_cell_changed)
         
         # Layout
         layout = QVBoxLayout(self)
@@ -74,7 +52,7 @@ class OOBDetailsWidget(QWidget):
             }
         """)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.splitter)
+        layout.addWidget(self.details_table)
         self.setLayout(layout)
     
     def populate(self, row_index: int) -> None:
@@ -91,69 +69,31 @@ class OOBDetailsWidget(QWidget):
         self.current_row_index = row_index
         row = self.data.df.iloc[row_index]
         
-        # Find the index of "Head Count" column
-        head_count_idx = None
-        for i, col in enumerate(row.index):
-            if col == "Head Count":
-                head_count_idx = i
-                break
+        self.details_table.clearContents()
+        self.details_table.setRowCount(len(row.index))
         
-        if head_count_idx is None:
-            head_count_idx = len(row.index)
-        
-        # Split columns
-        left_cols = row.index[:head_count_idx]
-        right_cols = row.index[head_count_idx:]
-        
-        # Populate left table (before Head Count)
-        self.details_left.clearContents()
-        self.details_left.setRowCount(len(left_cols))
-        
-        for i, column in enumerate(left_cols):
+        for i, column in enumerate(row.index):
             field_item = QTableWidgetItem(str(column))
             value_item = QTableWidgetItem(str(row[column]))
             
             field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)
-            # Make value item editable
-            
-            self.details_left.setItem(i, 0, field_item)
-            self.details_left.setItem(i, 1, value_item)
+            self.details_table.setItem(i, 0, field_item)
+            self.details_table.setItem(i, 1, value_item)
         
-        self.details_left.resizeColumnsToContents()
-        self.details_left.resizeRowsToContents()
-        
-        # Populate right table (Head Count onwards)
-        self.details_right.clearContents()
-        self.details_right.setRowCount(len(right_cols))
-        
-        for i, column in enumerate(right_cols):
-            field_item = QTableWidgetItem(str(column))
-            value_item = QTableWidgetItem(str(row[column]))
-            
-            field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)
-            # Make value item editable
-            
-            self.details_right.setItem(i, 0, field_item)
-            self.details_right.setItem(i, 1, value_item)
-        
-        self.details_right.resizeColumnsToContents()
-        self.details_right.resizeRowsToContents()
+        self.details_table.resizeColumnsToContents()
+        self.details_table.resizeRowsToContents()
     
     def clear(self) -> None:
-        """Clear all detail views."""
+        """Clear the detail view."""
         self.current_row_index = None
-        self.details_left.clearContents()
-        self.details_right.clearContents()
-        self.details_left.setRowCount(0)
-        self.details_right.setRowCount(0)
+        self.details_table.clearContents()
+        self.details_table.setRowCount(0)
     
     def on_detail_cell_changed(self, item: QTableWidgetItem) -> None:
         """Handle changes to detail table cells and update the dataframe."""
         if self.current_row_index is None or self.data.df is None:
             return
         
-        # Determine which table and get the field name
-        table = self.sender()
         row_in_table = item.row()
         col = item.column()
         
@@ -161,12 +101,7 @@ class OOBDetailsWidget(QWidget):
         if col != 1:
             return
         
-        field_name = None
-        if table == self.details_left:
-            field_name = self.details_left.item(row_in_table, 0).text()
-        elif table == self.details_right:
-            field_name = self.details_right.item(row_in_table, 0).text()
-        
+        field_name = self.details_table.item(row_in_table, 0).text()
         if field_name:
             new_value = item.text()
             if new_value == "<NA>":
