@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene
-from PySide6.QtCore import Qt, Signal, QRectF
-from PySide6.QtGui import QWheelEvent, QPainter
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QGraphicsView, QGraphicsScene, QGraphicsLineItem
+from PySide6.QtCore import Qt, Signal, QRectF, QLineF
+from PySide6.QtGui import QWheelEvent, QPainter, QPen, QColor
 from oob_model import OOBData
 from oob_visual_shapes import get_shape_class_for_level, UnitGraphicsItem
 from oob_visual_layout import HierarchicalLayout
@@ -34,6 +34,18 @@ class OOBVisualWidget(QWidget):
         # Setup widget layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        controls_layout = QHBoxLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.addStretch()
+        self.regenerate_view_button = QPushButton("Regenerate Layout")
+        self.regenerate_view_button.clicked.connect(self._on_regenerate_view)
+        controls_layout.addWidget(self.regenerate_view_button)
+        self.reset_view_button = QPushButton("Reset View")
+        self.reset_view_button.clicked.connect(self._on_reset_view)
+        controls_layout.addWidget(self.reset_view_button)
+
+        layout.addLayout(controls_layout)
         layout.addWidget(self.view)
         self.setLayout(layout)
         
@@ -82,9 +94,20 @@ class OOBVisualWidget(QWidget):
             self.scene.addItem(item)
             self.items_by_row_index[unit_row_idx] = item
         print(f"Graphics items created in {time.time() - start:.2f} seconds")
-        
+
+        # Draw light dotted line at y=0
+        if positions:
+            x_coords = [x for x, y in positions.values()]
+            x_min = min(x_coords) - 100
+            x_max = max(x_coords) + 100
+            line = QGraphicsLineItem(x_min, 0, x_max, 0)
+            pen = QPen(QColor("#a9a9a9"))
+            pen.setStyle(Qt.DashLine)
+            line.setPen(pen)
+            self.scene.addItem(line)
+
         # Fit scene in view
-        self.view.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.view.reset_view(self.scene.itemsBoundingRect())
     
     def clear(self) -> None:
         """Clear the visual view."""
@@ -108,7 +131,15 @@ class OOBVisualWidget(QWidget):
             item = self.items_by_row_index[row_index]
             if isinstance(item, UnitGraphicsItem):
                 item.set_selected(True)
+
+    def _on_reset_view(self) -> None:
+        """Reset the visual scene to its full bounds."""
+        self.view.reset_view(self.scene.itemsBoundingRect())
     
+    def _on_regenerate_view(self) -> None:
+        """Regenerate the visual view (called by user or when data changes)."""
+        self.populate()
+
     def _on_unit_clicked(self, unit_row_index: int) -> None:
         """
         Handle unit click from graphics view.
@@ -138,13 +169,15 @@ class OOBGraphicsView(QGraphicsView):
         
         self.zoom_level = 1.0
         self.last_mouse_pos = None
+        self.panning = False
+        self.pan_start = None
         
         # Enable antialiasing
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # Styling
-        self.setStyleSheet("background-color: #0a0a0a;")
+        self.setStyleSheet("background-color: #2c2c2c;")
     
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Handle mouse wheel for zoom."""
@@ -168,13 +201,48 @@ class OOBGraphicsView(QGraphicsView):
         self.scale(factor, factor)
         self.zoom_level = new_zoom
     
+    def reset_view(self, rect: QRectF) -> None:
+        """Reset the view transform and fit the scene rectangle."""
+        if rect.isNull() or not rect.isValid():
+            return
+        self.resetTransform()
+        self.zoom_level = 1.0
+        self.setTransformationAnchor(self.ViewportAnchor.AnchorUnderMouse)
+        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+    
     def mousePressEvent(self, event):
-        """Handle mouse clicks on items."""
-        # Get the clicked item
-        item = self.itemAt(event.pos())
+        """Handle mouse clicks and right-button panning."""
+        if event.button() == Qt.MouseButton.RightButton:
+            self.panning = True
+            self.pan_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
         
-        if item and isinstance(item, UnitGraphicsItem):
-            # Emit signal with row index
-            self.unit_clicked.emit(item.unit_row_index)
+        if event.button() == Qt.MouseButton.LeftButton:
+            item = self.itemAt(event.pos())
+            if item and isinstance(item, UnitGraphicsItem):
+                self.unit_clicked.emit(item.unit_row_index)
         
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        """Handle right-button drag panning."""
+        if self.panning and self.pan_start is not None:
+            delta = event.pos() - self.pan_start
+            self.pan_start = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        """Stop panning when the right mouse button is released."""
+        if event.button() == Qt.MouseButton.RightButton and self.panning:
+            self.panning = False
+            self.pan_start = None
+            self.setCursor(Qt.ArrowCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)

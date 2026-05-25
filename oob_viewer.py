@@ -160,12 +160,12 @@ class OOBViewer(QMainWindow):
         self.left_splitter.addWidget(self.tree)
         self.left_splitter.addWidget(self.visual)
         self.left_splitter.setStretchFactor(0, 1)  # tree
-        self.left_splitter.setStretchFactor(1, 1)  # visual
+        self.left_splitter.setStretchFactor(1, 2)  # visual
 
         self.main_splitter.addWidget(self.left_splitter)
         self.main_splitter.addWidget(self.details)
-        self.main_splitter.setStretchFactor(0, 3)  # left stack
-        self.main_splitter.setStretchFactor(1, 2)  # details
+        self.main_splitter.setStretchFactor(0, 7)  # left stack
+        self.main_splitter.setStretchFactor(1, 1)  # details
 
         self.layout.addWidget(self.main_splitter, 1)
 
@@ -205,10 +205,10 @@ class OOBViewer(QMainWindow):
                 for warning in warnings:
                     print(f"  {warning}\n")
 
-            # Populate tree and details views
+            # Populate tree and visual views, clear details
             self.tree.populate()
+            self.visual.populate()
             self.details.clear()
-            self.visual.clear()
 
             self.status_label.setText(path)
             self.save_button.setEnabled(True)
@@ -239,14 +239,12 @@ class OOBViewer(QMainWindow):
         """Handle unit selection from tree or visual view."""
         self.tree.select_unit(row_index)
         self.details.populate(row_index)
-        self.visual.populate(row_index)
         self.visual.highlight_unit(row_index)
 
     def on_unit_deleted(self, num_deleted: int):
         """Handle unit deletion from tree."""
-        # Details and visual are automatically cleared by tree's populate() call
-        # which is called from action_delete()
-        pass
+        # Regenerate the visual view after deletion
+        self.visual.populate()
 
 
 def main():

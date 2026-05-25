@@ -4,16 +4,48 @@ from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont
 import math
 
 
+def draw_star(painter: QPainter, center: QPointF, size: float, color: QColor, border_color: QColor) -> None:
+    """
+    Draw a single 5-pointed star.
+    
+    Args:
+        painter: QPainter object to draw with
+        center: Center point of the star
+        size: Radius of the star
+        color: Fill color
+        border_color: Border color
+    """
+    # Calculate 5-pointed star points
+    points = []
+    for i in range(10):
+        angle = math.pi / 2 + i * math.pi / 5
+        if i % 2 == 0:
+            # Outer point
+            r = size
+        else:
+            # Inner point
+            r = size * 0.4
+        x = center.x() + r * math.cos(angle)
+        y = center.y() - r * math.sin(angle)
+        points.append(QPointF(x, y))
+    
+    painter.setBrush(QBrush(color))
+    painter.setPen(QPen(border_color, 1.5))
+    painter.drawPolygon(points)
+
+
 class UnitGraphicsItem(QGraphicsItem):
     """
     Base class for visual unit representations.
     
-    Each unit is rendered as a shape with a text label. Supports selection,
+    Each unit is rendered as star(s) with a text label. Supports selection,
     hovering, and stores the row index for selection tracking.
     """
     
-    # Shape size constants (in logical units)
-    BASE_SIZE = 60
+    
+    # Star size constants (in logical units)
+    STAR_SIZE = 12
+    BASE_SIZE = 60  # Base size for non-star shapes
     
     # Color constants
     COLOR_SIDE_1 = QColor("#2c5aa0")  # Blue for French
@@ -51,7 +83,6 @@ class UnitGraphicsItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         
         # Set bounding rect for hit detection
-        size = self.BASE_SIZE
         self.setPos(0, 0)
     
     def get_side_color(self) -> QColor:
@@ -112,132 +143,112 @@ class UnitGraphicsItem(QGraphicsItem):
         self.update()
 
 
-class CircleItem(UnitGraphicsItem):
-    """Circle shape for Side (Level 1)."""
+class StarLevel1Item(UnitGraphicsItem):
+    """Level 1 (Side): 5 stars arranged in a tight circle."""
     
     def boundingRect(self):
         """Return the bounding rectangle."""
-        size = self.BASE_SIZE
-        return QRect(-size // 2, -size // 2, size, size)
+        size = self.STAR_SIZE * 3.5
+        return QRect(-int(size), -int(size), int(size * 2), int(size * 2))
     
     def draw_shape(self, painter: QPainter):
-        """Draw a circle."""
-        rect = self.boundingRect()
-        
-        # Fill
-        painter.fillRect(rect, QBrush(self.get_side_color()))
-        
-        # Border
-        pen = QPen(self.get_border_color(), 2)
-        painter.setPen(pen)
-        painter.drawEllipse(rect)
-
-
-class HexagonItem(UnitGraphicsItem):
-    """Hexagon shape for Army (Level 2)."""
-    
-    def boundingRect(self):
-        """Return the bounding rectangle."""
-        size = self.BASE_SIZE
-        return QRect(-size // 2, -size // 2, size, size)
-    
-    def draw_shape(self, painter: QPainter):
-        """Draw a hexagon."""
-        size = self.BASE_SIZE / 2
+        """Draw 5 stars in a tight circle."""
         center = QPointF(0, 0)
+        radius = self.STAR_SIZE * 1.2
+        color = self.get_side_color()
+        border_color = self.get_border_color()
         
-        # Create hexagon points
-        points = []
-        for i in range(6):
-            angle = math.pi / 3 * i  # 60-degree increments
-            x = center.x() + size * math.cos(angle)
-            y = center.y() + size * math.sin(angle)
-            points.append(QPointF(x, y))
-        
-        # Fill
-        painter.setBrush(QBrush(self.get_side_color()))
-        painter.setPen(QPen(self.get_border_color(), 2))
-        painter.drawPolygon(points)
-
-
-class PentagonItem(UnitGraphicsItem):
-    """Pentagon shape for Corps (Level 3)."""
-    
-    def boundingRect(self):
-        """Return the bounding rectangle."""
-        size = self.BASE_SIZE
-        return QRect(-size // 2, -size // 2, size, size)
-    
-    def draw_shape(self, painter: QPainter):
-        """Draw a pentagon."""
-        size = self.BASE_SIZE / 2
-        center = QPointF(0, 0)
-        
-        # Create pentagon points
-        points = []
+        # Arrange 5 stars in a circle
         for i in range(5):
-            angle = math.pi / 2.5 * i - math.pi / 2  # Start from top
-            x = center.x() + size * math.cos(angle)
-            y = center.y() + size * math.sin(angle)
-            points.append(QPointF(x, y))
-        
-        # Fill
-        painter.setBrush(QBrush(self.get_side_color()))
-        painter.setPen(QPen(self.get_border_color(), 2))
-        painter.drawPolygon(points)
+            angle = (2 * math.pi * i) / 5 - math.pi / 2
+            x = center.x() + radius * math.cos(angle)
+            y = center.y() + radius * math.sin(angle)
+            draw_star(painter, QPointF(x, y), self.STAR_SIZE, color, border_color)
 
 
-class DiamondItem(UnitGraphicsItem):
-    """Diamond shape for Division (Level 4)."""
+class StarLevel2Item(UnitGraphicsItem):
+    """Level 2 (Army): 4 stars in a tight horizontal line."""
     
     def boundingRect(self):
         """Return the bounding rectangle."""
-        size = self.BASE_SIZE
-        return QRect(-size // 2, -size // 2, size, size)
+        width = self.STAR_SIZE * 5.5
+        height = self.STAR_SIZE * 2.5
+        return QRect(-int(width/2), -int(height/2), int(width), int(height))
     
     def draw_shape(self, painter: QPainter):
-        """Draw a diamond."""
-        size = self.BASE_SIZE / 2
+        """Draw 4 stars in a horizontal line."""
         center = QPointF(0, 0)
+        spacing = self.STAR_SIZE * 0.8
+        color = self.get_side_color()
+        border_color = self.get_border_color()
         
-        # Create diamond points
-        points = [
-            QPointF(center.x(), center.y() - size),      # Top
-            QPointF(center.x() + size, center.y()),      # Right
-            QPointF(center.x(), center.y() + size),      # Bottom
-            QPointF(center.x() - size, center.y()),      # Left
-        ]
-        
-        # Fill
-        painter.setBrush(QBrush(self.get_side_color()))
-        painter.setPen(QPen(self.get_border_color(), 2))
-        painter.drawPolygon(points)
+        # Arrange 4 stars horizontally
+        for i in range(4):
+            x = center.x() + (i - 1.5) * spacing
+            y = center.y()
+            draw_star(painter, QPointF(x, y), self.STAR_SIZE, color, border_color)
 
 
-class TriangleItem(UnitGraphicsItem):
-    """Triangle shape for Brigade (Level 5)."""
+class StarLevel3Item(UnitGraphicsItem):
+    """Level 3 (Corps): 3 stars in a tight horizontal line."""
     
     def boundingRect(self):
         """Return the bounding rectangle."""
-        size = self.BASE_SIZE
-        return QRect(-size // 2, -size // 2, size, size)
+        width = self.STAR_SIZE * 4.5
+        height = self.STAR_SIZE * 2.5
+        return QRect(-int(width/2), -int(height/2), int(width), int(height))
     
     def draw_shape(self, painter: QPainter):
-        """Draw a triangle (pointing up)."""
-        size = self.BASE_SIZE / 2
+        """Draw 3 stars in a horizontal line."""
         center = QPointF(0, 0)
+        spacing = self.STAR_SIZE * 0.8
+        color = self.get_side_color()
+        border_color = self.get_border_color()
         
-        # Create triangle points
-        points = [
-            QPointF(center.x(), center.y() - size),           # Top
-            QPointF(center.x() + size, center.y() + size),    # Bottom right
-            QPointF(center.x() - size, center.y() + size),    # Bottom left
-        ]
+        # Arrange 3 stars horizontally
+        for i in range(3):
+            x = center.x() + (i - 1) * spacing
+            y = center.y()
+            draw_star(painter, QPointF(x, y), self.STAR_SIZE, color, border_color)
+
+
+class StarLevel4Item(UnitGraphicsItem):
+    """Level 4 (Division): 2 stars in a tight horizontal line."""
+    
+    def boundingRect(self):
+        """Return the bounding rectangle."""
+        width = self.STAR_SIZE * 3.5
+        height = self.STAR_SIZE * 2.5
+        return QRect(-int(width/2), -int(height/2), int(width), int(height))
+    
+    def draw_shape(self, painter: QPainter):
+        """Draw 2 stars in a horizontal line."""
+        center = QPointF(0, 0)
+        spacing = self.STAR_SIZE * 0.8
+        color = self.get_side_color()
+        border_color = self.get_border_color()
         
-        # Fill
-        painter.setBrush(QBrush(self.get_side_color()))
-        painter.setPen(QPen(self.get_border_color(), 2))
-        painter.drawPolygon(points)
+        # Arrange 2 stars horizontally
+        for i in range(2):
+            x = center.x() + (i - 0.5) * spacing
+            y = center.y()
+            draw_star(painter, QPointF(x, y), self.STAR_SIZE, color, border_color)
+
+
+class StarLevel5Item(UnitGraphicsItem):
+    """Level 5 (Brigade): 1 star."""
+    
+    def boundingRect(self):
+        """Return the bounding rectangle."""
+        size = self.STAR_SIZE * 1.8
+        return QRect(-int(size), -int(size), int(size * 2), int(size * 2))
+    
+    def draw_shape(self, painter: QPainter):
+        """Draw 1 star."""
+        center = QPointF(0, 0)
+        color = self.get_side_color()
+        border_color = self.get_border_color()
+        draw_star(painter, center, self.STAR_SIZE, color, border_color)
 
 
 class RectangleItem(UnitGraphicsItem):
@@ -270,14 +281,14 @@ def get_shape_class_for_level(level: int):
         level: Hierarchy level (1-6)
     
     Returns:
-        Shape class (CircleItem, HexagonItem, etc.)
+        Shape class for the given level (StarLevel1Item, StarLevel2Item, etc., or RectangleItem for level 6)
     """
     shape_map = {
-        1: CircleItem,
-        2: HexagonItem,
-        3: PentagonItem,
-        4: DiamondItem,
-        5: TriangleItem,
+        1: StarLevel1Item,
+        2: StarLevel2Item,
+        3: StarLevel3Item,
+        4: StarLevel4Item,
+        5: StarLevel5Item,
         6: RectangleItem,
     }
     return shape_map.get(level, RectangleItem)

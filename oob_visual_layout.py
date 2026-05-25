@@ -12,8 +12,8 @@ class HierarchicalLayout:
     
     # Layout constants (in logical units)
     HORIZONTAL_SPACING = 50    # Space between sibling units
-    VERTICAL_SPACING = 50     # Space between parent and children
-    ROW_VERTICAL_SPACING = 50  # Space between the two rows
+    VERTICAL_SPACING = 75     # Space between parent and children
+    ROW_VERTICAL_SPACING = 35  # Space between the two rows
     
     def __init__(self, data: OOBData):
         """
@@ -64,24 +64,22 @@ class HierarchicalLayout:
             subtree_widths = [self._compute_subtree_size(root)[0] for root in side2_roots]
             total_width = sum(subtree_widths) + self.HORIZONTAL_SPACING * (len(side2_roots) - 1)
             start_x = -total_width / 2
-            y_pos = 0
+            y_pos = 0 - self.VERTICAL_SPACING
             current_x = start_x
             for unit_idx, width in zip(side2_roots, subtree_widths):
                 x_pos = current_x + width / 2
-                self._layout_unit_recursive(unit_idx, x_pos, y_pos, direction=1)
+                self._layout_unit_recursive(unit_idx, x_pos, y_pos, direction=-1)
                 current_x += width + self.HORIZONTAL_SPACING
 
         if side1_roots:
             subtree_widths = [self._compute_subtree_size(root)[0] for root in side1_roots]
             total_width = sum(subtree_widths) + self.HORIZONTAL_SPACING * (len(side1_roots) - 1)
             start_x = -total_width / 2
-            max_side2_height = max((self.subtree_sizes[root][1] for root in side2_roots), default=0.0)
-            max_side1_height = max((self.subtree_sizes[root][1] for root in side1_roots), default=0.0)
-            y_pos = max_side2_height + self.VERTICAL_SPACING * 3 + max_side1_height
+            y_pos = 0 + self.VERTICAL_SPACING
             current_x = start_x
             for unit_idx, width in zip(side1_roots, subtree_widths):
                 x_pos = current_x + width / 2
-                self._layout_unit_recursive(unit_idx, x_pos, y_pos, direction=-1)
+                self._layout_unit_recursive(unit_idx, x_pos, y_pos, direction=1)
                 current_x += width + self.HORIZONTAL_SPACING
 
         return self.positions
