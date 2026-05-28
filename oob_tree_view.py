@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from oob_model import OOBData
 import pandas as pd
+from typing import List
 
 
 class OOBTreeWidget(QTreeWidget):
@@ -34,8 +35,8 @@ class OOBTreeWidget(QTreeWidget):
         self.data = data
         
         # Setup tree appearance
-        self.setColumnCount(4)
-        self.setHeaderLabels(["Unit", "Level", "Strength", "Line"])
+        self.setColumnCount(5)
+        self.setHeaderLabels(["Unit", "Level", "Strength", "Experience", "Line"])
         
         self.itemSelectionChanged.connect(self.on_selection_changed)
         self.setStyleSheet("""QTreeView::item {
@@ -104,6 +105,7 @@ class OOBTreeWidget(QTreeWidget):
                 hierarchy_key = self.data.get_hierarchy_key(row, idx)
                 name = str(row.get("NAME1", "Unknown"))
                 strength = row.get("Head Count", "")
+                avg_experience = row.get("Experience", "")
                 level_info = self.data.get_hierarchy_level_name_and_index(hierarchy_key)
                 line_num = int(row.get("line_number", idx + 2))
                 side = int(row.get("SIDE 1", 0) or 0)
@@ -114,6 +116,7 @@ class OOBTreeWidget(QTreeWidget):
                     'hierarchy_key': hierarchy_key,
                     'name': name,
                     'strength': strength,
+                    'avg_experience': avg_experience,
                     'level_info': level_info,
                     'line_num': line_num,
                     'side': side
@@ -130,6 +133,7 @@ class OOBTreeWidget(QTreeWidget):
                 data['name'],
                 data['level_info'],
                 str(data['strength']),
+                str(data['avg_experience']),  # experience filled in below
                 str(data['line_num'])
             ])
             
@@ -153,6 +157,7 @@ class OOBTreeWidget(QTreeWidget):
         for i in range(self.topLevelItemCount()):
             item = self.topLevelItem(i)
             self.calculate_total_strength(item)
+            self.calculate_average_experience(item)
         
         self.expandToDepth(2)
     
@@ -223,6 +228,53 @@ class OOBTreeWidget(QTreeWidget):
         item.setText(2, display_val)
         
         return total
+
+
+    def calculate_average_experience(self, item: QTreeWidgetItem) -> float:
+        """
+        Recursively calculate average experience of a unit and all its subordinates,
+        excluding supply wagon formation units.
+        For leaf nodes (no children), displays the unit's own experience value.
+        Updates the item's experience display.
+        
+        Args:
+            item: Tree item to calculate experience for
+            
+        Returns:
+            Average experience value
+        """
+        row_index = item.data(0, Qt.UserRole)
+        if row_index is None:
+            return 0.0
+        
+        row = self.data.df.iloc[row_index]
+        try:
+            own_exp = float(row.get("Experience", 0) or 0)
+        except (ValueError, TypeError):
+            own_exp = 0.0
+        
+        # Collect experience from all children (excluding supply wagons)
+        child_exps = []
+        for i in range(item.childCount()):
+            child_item = item.child(i)
+            child_exp = self.calculate_average_experience(child_item)
+            child_row_index = child_item.data(0, Qt.UserRole)
+            if child_row_index is not None:
+                child_row = self.data.df.iloc[child_row_index]
+                child_formation = str(child_row.get("Formation", "") or "")
+                if "SupplyWagon" not in child_formation:
+                    child_exps.append(child_exp)
+        
+        if item.childCount() == 0:
+            # Leaf node: display own experience
+            item.setText(3, f"{own_exp:.2f}")
+            return own_exp
+        
+        # Parent node: display average of subordinates (excluding supply wagons)
+        avg_exp = (sum(child_exps) / len(child_exps)) if child_exps else own_exp
+        item.setText(3, f"{avg_exp:.2f}")
+        return avg_exp
+
 
     def find_item_by_row_index(self, row_index: int) -> QTreeWidgetItem | None:
         """
