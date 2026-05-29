@@ -31,32 +31,116 @@ class OOBMapGraphicsView(QGraphicsView):
     def __init__(self, scene, map_widget, parent=None):
         super().__init__(scene, parent)
         self.map_widget = map_widget
+        self.selection_rect_item = None
+        self.selection_start = None
+        self.is_box_selecting = False
     
     def mouseMoveEvent(self, event):
         """Handle mouse movement."""
-        self.map_widget.on_minimap_mouse_move(event)
-        super().mouseMoveEvent(event)
+        if self.is_box_selecting and self.selection_start:
+            scene_pos = self.mapToScene(event.pos())
+            
+            # Draw selection rectangle
+            selection_rect = QRectF(self.selection_start, scene_pos).normalized()
+            
+            if self.selection_rect_item is None:
+                self.selection_rect_item = self.scene().addRect(
+                    selection_rect,
+                    QPen(QColor(100, 150, 255), 1),
+                    QBrush(QColor(100, 150, 255, 50))
+                )
+            else:
+                self.selection_rect_item.setRect(selection_rect)
+            
+            event.accept()
+        else:
+            self.map_widget.on_minimap_mouse_move(event)
+            super().mouseMoveEvent(event)
     
     def mousePressEvent(self, event):
         """Handle mouse press."""
-        if self.map_widget.placement_mode:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            super().mousePressEvent(event)
+        elif self.map_widget.placement_mode:
             self.map_widget.on_map_clicked(event)
+            super().mousePressEvent(event)
+        elif event.button() == Qt.MouseButton.LeftButton:
+            # Check if clicked on an item
+            item = self.itemAt(event.pos())
+            
+            if isinstance(item, MapUnitItem):
+                # Clicked on a unit
+                if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+                    # Shift-click: toggle selection
+                    item.setSelected(not item.isSelected())
+                    event.accept()
+                    return
+                else:
+                    # Regular click on unit: select it and allow dragging
+                    #self.scene().clearSelection()
+                    item.setSelected(True)
+                    super().mousePressEvent(event)  # Let default behavior handle dragging
+                    return
+            else:
+                # Clicked on empty space: start box selection
+                scene_pos = self.mapToScene(event.pos())
+                
+                if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                    # If not Shift-clicking, clear previous selection
+                    self.scene().clearSelection()
+                
+                # Start box selection
+                self.selection_start = scene_pos
+                self.is_box_selecting = True
+                event.accept()
         else:
             super().mousePressEvent(event)
     
-    def leaveEvent(self, event):
-        """Handle leaving the view."""
-        self.map_widget.on_minimap_mouse_leave(event)
-        super().leaveEvent(event)
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release."""
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.setDragMode(QGraphicsView.NoDrag)
+            super().mouseReleaseEvent(event)
+        elif event.button() == Qt.MouseButton.LeftButton and self.is_box_selecting:
+            # Finish box selection
+            if self.selection_rect_item:
+                rect = self.selection_rect_item.rect()
+                self.scene().removeItem(self.selection_rect_item)
+                self.selection_rect_item = None
+                
+                # Select all items in the rectangle
+                items = self.scene().items(rect)
+                for item in items:
+                    if isinstance(item, MapUnitItem):
+                        item.setSelected(True)
+            
+            self.is_box_selecting = False
+            self.selection_start = None
+            event.accept()
+        else:
+            item = self.itemAt(event.pos())
+            if item is None:
+                self.scene().clearSelection()
+            super().mouseReleaseEvent(event)
     
     def wheelEvent(self, event):
-        """Handle scroll wheel for rotation."""
-        if self.map_widget.placement_mode:
+        """Handle scroll wheel for rotation. Zoom disabled when unit is selected, which allows rotation instead. 
+        Placement mode locks both currently."""
+        if not self.map_widget.placement_mode:
             items = self.scene().selectedItems()
             if items:
-                item = items[0]
+                # Rotate all selected items
                 angle_delta = event.angleDelta().y() / 8
-                item.setRotation(item.rotation() + angle_delta)
+                for item in items:
+                    if isinstance(item, MapUnitItem):
+                        item.setRotation(item.rotation() + angle_delta)
+                event.accept()
+                return
+            else:
+                # Zoom in/out based on scroll wheel
+                zoom_factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+                self.scale(zoom_factor, zoom_factor)
                 event.accept()
                 return
         super().wheelEvent(event)
@@ -186,6 +270,7 @@ class OOBMapWidget(QWidget):
         self.minimap_pixmap_item = None
         self.minimap_display_size = None  # Size of displayed pixmap in pixels
         self.tile_scale = 512
+        self.units_per_yard = 30
         
         # Placement mode data
         self.placement_mode = False
@@ -224,6 +309,18 @@ class OOBMapWidget(QWidget):
         self.tile_scale_spinbox.setToolTip("Default: 512. Controls coordinate scaling.")
         self.tile_scale_spinbox.valueChanged.connect(self.on_tile_scale_changed)
         control_layout.addWidget(self.tile_scale_spinbox)
+        
+        # Units Per Yard control
+        upy_label = QLabel("Units Per Yard:")
+        control_layout.addWidget(upy_label)
+        
+        self.units_per_yard_spinbox = QSpinBox()
+        self.units_per_yard_spinbox.setMinimum(1)
+        self.units_per_yard_spinbox.setMaximum(256)
+        self.units_per_yard_spinbox.setValue(30)
+        self.units_per_yard_spinbox.setToolTip("Default: 30. Units displayed per yard on the map.")
+        self.units_per_yard_spinbox.valueChanged.connect(self.on_units_per_yard_changed)
+        control_layout.addWidget(self.units_per_yard_spinbox)
         
         # Placement mode button
         self.placement_button = QPushButton("Placement Mode: OFF")
@@ -477,6 +574,10 @@ class OOBMapWidget(QWidget):
         self.tile_scale = value
         self._update_placed_unit_positions()
         # Coordinates will be recalculated on next mouse move via on_minimap_mouse_move()
+    
+    def on_units_per_yard_changed(self, value: int):
+        """Handle units per yard spinbox value change."""
+        self.units_per_yard = value
     
     # ==================== Placement Mode Methods ====================
     
