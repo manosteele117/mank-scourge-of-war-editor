@@ -1,6 +1,8 @@
 import os
 import configparser
 from pathlib import Path
+from typing import List, Tuple, Optional, Dict
+import math
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -14,16 +16,162 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QGraphicsView,
     QGraphicsScene,
+    QGraphicsItem,
 )
-from PySide6.QtGui import QPixmap, QFont, QPainter, QImage
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor
+from PySide6.QtCore import Qt, QPoint, QPointF, QRectF, Signal
 from PIL import Image
 
 from utilities import get_tga_dimensions
 
 
+class OOBMapGraphicsView(QGraphicsView):
+    """Custom graphics view for the minimap with placement mode support."""
+    
+    def __init__(self, scene, map_widget, parent=None):
+        super().__init__(scene, parent)
+        self.map_widget = map_widget
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse movement."""
+        self.map_widget.on_minimap_mouse_move(event)
+        super().mouseMoveEvent(event)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press."""
+        if self.map_widget.placement_mode:
+            self.map_widget.on_map_clicked(event)
+        else:
+            super().mousePressEvent(event)
+    
+    def leaveEvent(self, event):
+        """Handle leaving the view."""
+        self.map_widget.on_minimap_mouse_leave(event)
+        super().leaveEvent(event)
+    
+    def wheelEvent(self, event):
+        """Handle scroll wheel for rotation."""
+        if self.map_widget.placement_mode:
+            items = self.scene().selectedItems()
+            if items:
+                item = items[0]
+                angle_delta = event.angleDelta().y() / 8
+                item.setRotation(item.rotation() + angle_delta)
+                event.accept()
+                return
+        super().wheelEvent(event)
+
+
+class MapUnitItem(QGraphicsItem):
+    """
+    A map-placed unit representation on the minimap.
+    
+    Stores world coordinates and handles rendering as a shape on the map.
+    Supports drag, rotate, and selection.
+    """
+    
+    # Size constants
+    SHAPE_SIZE = 15
+    
+    # Colors
+    COLOR_SIDE_1 = QColor("#2c5aa0")  # Blue
+    COLOR_SIDE_2 = QColor("#a02c2c")  # Red
+    COLOR_BORDER_NORMAL = QColor("#aaaaaa")
+    COLOR_BORDER_SELECTED = QColor("#ffff00")
+    COLOR_BORDER_HOVER = QColor("#64b5f6")
+    
+    def __init__(self, name: str, unit_row_index: int, side: int, level: int, formation: str, world_x: int, world_y: int, map_widget=None, parent=None):
+        """
+        Initialize a map unit item.
+        
+        Args:
+            name: Unit name
+            unit_row_index: Row index in OOBData
+            side: 1 or 2
+            level: Hierarchy level (1-6)
+            formation: Formation type
+            world_x: World coordinate X
+            world_y: World coordinate Y
+            map_widget: Owning map widget for coordinate sync
+            parent: Parent QGraphicsItem
+        """
+        super().__init__(parent)
+        
+        self.name = name
+        self.unit_row_index = unit_row_index
+        self.side = side
+        self.level = level
+        self.formation = formation
+        self.world_x = world_x
+        self.world_y = world_y
+        self.map_widget = map_widget
+        self.is_hovered = False
+        
+        # Store row index for selection tracking
+        self.setData(Qt.UserRole, unit_row_index)
+        
+        # Enable interaction
+        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        
+        # Default rotation
+        self.setRotation(0)
+    
+    def boundingRect(self):
+        """Return tight bounding rectangle."""
+        size = self.SHAPE_SIZE * 2
+        return QRectF(-size - 5, -size - 5, size * 2 + 10, size * 2 + 10)
+    
+    def paint(self, painter: QPainter, option, widget=None):
+        """Paint the unit shape."""
+        # Determine colors
+        side_color = self.COLOR_SIDE_1 if self.side == 1 else self.COLOR_SIDE_2
+        if self.isSelected():
+            side_color = side_color.lighter(150)
+        elif self.is_hovered:
+            side_color = side_color.lighter(120)
+        
+        border_color = self.COLOR_BORDER_SELECTED if self.isSelected() else self.COLOR_BORDER_HOVER if self.is_hovered else self.COLOR_BORDER_NORMAL
+        
+        # Draw a circle/shape based on level
+        painter.setBrush(QBrush(side_color))
+        painter.setPen(QPen(border_color, 2))
+        
+        # Draw circle for simplicity (can be extended to use proper shapes)
+        radius = self.SHAPE_SIZE
+        painter.drawEllipse(QPointF(0, 0), radius, radius)
+        
+        # Draw level indicator (number of stars or dots)
+        num_stars = min(self.level, 3)  # Max 3 stars for readability
+        star_spacing = radius * 0.6
+        for i in range(num_stars):
+            x = (i - (num_stars - 1) / 2) * star_spacing
+            painter.drawEllipse(QPointF(x, -radius - 5), 2, 2)
+    
+    def hoverEnterEvent(self, event):
+        """Handle hover enter."""
+        self.is_hovered = True
+        self.update()
+    
+    def hoverLeaveEvent(self, event):
+        """Handle hover leave."""
+        self.is_hovered = False
+        self.update()
+    
+    def itemChange(self, change, value):
+        """Handle item position changes."""
+        if change == QGraphicsItem.ItemPositionHasChanged and self.map_widget is not None:
+            self.world_x, self.world_y = self.map_widget.scene_to_world(self.pos().x(), self.pos().y())
+        return super().itemChange(change, value)
+
+
 class OOBMapWidget(QWidget):
     """Widget for displaying map information and minimap visualization."""
+    
+    # Signals
+    unit_placed = Signal(int, int, int)  # (row_index, world_x, world_y)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -35,8 +183,20 @@ class OOBMapWidget(QWidget):
         self.tga_width = None
         self.tga_height = None
         self.minimap_pixmap = None
+        self.minimap_pixmap_item = None
         self.minimap_display_size = None  # Size of displayed pixmap in pixels
         self.tile_scale = 512
+        
+        # Placement mode data
+        self.placement_mode = False
+        self.pending_placement_row = None
+        self.pending_placement_data = {}
+        self.placed_units: List[MapUnitItem] = []
+        self.placed_row_indices: set = set()  # track row indices to prevent duplicates
+        self.max_units = 50
+        self.placement_button = None
+        self.unit_label = None
+        self.unit_count_label = None
         
         self.init_ui()
     
@@ -65,6 +225,29 @@ class OOBMapWidget(QWidget):
         self.tile_scale_spinbox.valueChanged.connect(self.on_tile_scale_changed)
         control_layout.addWidget(self.tile_scale_spinbox)
         
+        # Placement mode button
+        self.placement_button = QPushButton("Placement Mode: OFF")
+        self.placement_button.setCheckable(True)
+        self.placement_button.toggled.connect(self.on_placement_mode_toggled)
+        self.placement_button.setMaximumWidth(150)
+        control_layout.addWidget(self.placement_button)
+        
+        # Unit label
+        self.unit_label = QLabel("Unit: ---")
+        self.unit_label.setMaximumWidth(200)
+        control_layout.addWidget(self.unit_label)
+        
+        # Unit count label
+        self.unit_count_label = QLabel("Units: 0/50")
+        self.unit_count_label.setMaximumWidth(100)
+        control_layout.addWidget(self.unit_count_label)
+        
+        # Clear all button
+        clear_button = QPushButton("Clear All")
+        clear_button.clicked.connect(self.clear_all_units)
+        clear_button.setMaximumWidth(100)
+        control_layout.addWidget(clear_button)
+        
         control_layout.addStretch()
         
         control_widget = QWidget()
@@ -77,14 +260,12 @@ class OOBMapWidget(QWidget):
         
         # Minimap display area
         self.minimap_scene = QGraphicsScene()
-        self.minimap_view = QGraphicsView(self.minimap_scene)
+        self.minimap_view = OOBMapGraphicsView(self.minimap_scene, self)
         self.minimap_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.minimap_view.setRenderHints(self.minimap_view.renderHints() | QPainter.Antialiasing)
         self.minimap_view.setMouseTracking(True)
         self.minimap_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.minimap_view.setStyleSheet("border: 1px solid #333333; background-color: #1a1a1a;")
-        self.minimap_view.mouseMoveEvent = self.on_minimap_mouse_move
-        self.minimap_view.leaveEvent = self.on_minimap_mouse_leave
         main_layout.addWidget(self.minimap_view, 1)
         
         # Coordinates display
@@ -214,7 +395,12 @@ class OOBMapWidget(QWidget):
         # Store original pixmap dimensions for coordinate calculation
         self.minimap_display_size = (self.minimap_pixmap.width(), self.minimap_pixmap.height())
         
-        # Clear previous scene and add scaled pixmap
+        # Clear previous scene but preserve placed units temporarily
+        placed_units_backup = list(self.placed_units)
+        placed_indices_backup = set(self.placed_row_indices)
+        for unit in placed_units_backup:
+            self.minimap_scene.removeItem(unit)
+        
         self.minimap_scene.clear()
         
         # Scale pixmap to fit within the view while preserving aspect ratio
@@ -230,7 +416,13 @@ class OOBMapWidget(QWidget):
         )
         
         # Add scaled pixmap to scene, centered
-        self.minimap_scene.addPixmap(scaled_pixmap)
+        self.minimap_pixmap_item = self.minimap_scene.addPixmap(scaled_pixmap)
+        self.minimap_pixmap_item.setPos(0, 0)
+        
+        # Restore placed units with updated positions
+        self._update_placed_unit_positions()
+        for unit in placed_units_backup:
+            self.minimap_scene.addItem(unit)
         
         # Fit view to scene contents
         self.minimap_view.fitInView(self.minimap_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
@@ -283,13 +475,191 @@ class OOBMapWidget(QWidget):
     def on_tile_scale_changed(self, value: int):
         """Handle tile scale spinbox value change."""
         self.tile_scale = value
+        self._update_placed_unit_positions()
         # Coordinates will be recalculated on next mouse move via on_minimap_mouse_move()
+    
+    # ==================== Placement Mode Methods ====================
+    
+    def on_placement_mode_toggled(self, enabled: bool):
+        """Handle placement mode toggle."""
+        self.placement_mode = enabled
+        if enabled:
+            self.placement_button.setText("Placement Mode: ON")
+            self.placement_button.setStyleSheet("background-color: #2c5aa0;")
+        else:
+            self.placement_button.setText("Placement Mode: OFF")
+            self.placement_button.setStyleSheet("")
+            self.pending_placement_row = None
+            self.unit_label.setText("Unit: ---")
+    
+    def set_pending_unit(self, row_index: int, unit_name: str, side: int = 1, level: int = 1, formation: str = ""):
+        """Set which unit is pending placement from the tree view."""
+
+        if not self.placement_mode:
+            self.placement_mode = True
+            self.placement_button.setChecked(True)
+        
+        self.pending_placement_row = row_index
+        self.pending_placement_data = {
+            "name": unit_name,
+            "side": side,
+            "level": level,
+            "formation": formation,
+        }
+        self.unit_label.setText(f"Unit: {unit_name}")
+    
+    def world_to_scene(self, world_x: int, world_y: int) -> QPointF:
+        """Convert world coordinates to scene coordinates."""
+        if self.tga_width is None or self.tga_height is None or self.minimap_pixmap_item is None:
+            return QPointF(0, 0)
+        
+        pixmap_rect = self.minimap_pixmap_item.boundingRect()
+        pixmap_pos = self.minimap_pixmap_item.pos()
+        world_width = self.tile_scale * self.tga_width
+        world_height = self.tile_scale * self.tga_height
+        
+        scene_x = pixmap_pos.x() + (world_x / world_width) * pixmap_rect.width()
+        scene_y = pixmap_pos.y() + (world_y / world_height) * pixmap_rect.height()
+        return QPointF(scene_x, scene_y)
+    
+    def scene_to_world(self, scene_x: float, scene_y: float) -> Tuple[int, int]:
+        """Convert scene coordinates back to world coordinates."""
+        if self.tga_width is None or self.tga_height is None or self.minimap_pixmap_item is None:
+            return 0, 0
+        
+        pixmap_rect = self.minimap_pixmap_item.boundingRect()
+        pixmap_pos = self.minimap_pixmap_item.pos()
+        world_width = self.tile_scale * self.tga_width
+        world_height = self.tile_scale * self.tga_height
+        
+        scene_offset_x = scene_x - pixmap_pos.x()
+        scene_offset_y = scene_y - pixmap_pos.y()
+        
+        world_x = int((scene_offset_x / pixmap_rect.width()) * world_width)
+        world_y = int((scene_offset_y / pixmap_rect.height()) * world_height)
+        return world_x, world_y
+    
+    def on_map_clicked(self, event):
+        """Handle map click in placement mode."""
+        if self.pending_placement_row is None:
+            return
+                # Only allow levels 1-4 (Side, Army, Corps, Division) to be placed
+        level = self.pending_placement_data.get("level", 1)
+        if level is None or level > 4:
+            QMessageBox.information(
+                None,
+                "Placement Restricted",
+                f"Only levels 1-4 (Side, Army, Corps, Division) can be placed on the map.\n"
+                f"Selected unit is level {level}: {self.pending_placement_data.get("name", f"Unit {len(self.placed_units) + 1}")}"
+            )
+            return
+        # Check for duplicate placement
+        if self.pending_placement_row in self.placed_row_indices:
+            unit_name = self.pending_placement_data.get("name", "Unknown")
+            QMessageBox.information(
+                self,
+                "Duplicate Unit",
+                f"{unit_name} has already been placed on the map.\n"
+                f"Each unit can only be placed once."
+            )
+            return
+        
+        if len(self.placed_units) >= self.max_units:
+            QMessageBox.warning(self, "Limit Reached", f"Maximum {self.max_units} units can be placed.")
+            return
+        
+        scene_pos = self.minimap_view.mapToScene(event.pos())
+        scene_rect = self.minimap_scene.sceneRect()
+        
+        if not scene_rect.contains(scene_pos):
+            return
+        
+        world_x, world_y = self.scene_to_world(scene_pos.x(), scene_pos.y())
+        self._place_unit(self.pending_placement_row, world_x, world_y)
+    
+    def _place_unit(self, row_index: int, world_x: int, world_y: int):
+        """Create and place a unit on the map."""
+        # Get unit data from pending placement data
+        name = self.pending_placement_data.get("name", f"Unit {len(self.placed_units) + 1}")
+        side = self.pending_placement_data.get("side", 1)
+        level = self.pending_placement_data.get("level", 1)
+        formation = self.pending_placement_data.get("formation", "")
+        
+        # Create map unit item
+        unit_item = MapUnitItem(
+            name=name,
+            unit_row_index=row_index,
+            side=side,
+            level=level,
+            formation=formation,
+            world_x=world_x,
+            world_y=world_y,
+            map_widget=self,
+        )
+        
+        # Position on scene
+        scene_pos = self.world_to_scene(world_x, world_y)
+        unit_item.setPos(scene_pos)
+        
+        # Add to scene and tracking list
+        self.minimap_scene.addItem(unit_item)
+        self.placed_units.append(unit_item)
+        self.placed_row_indices.add(row_index)
+        
+        # Update UI
+        self._update_unit_count()
+        self.unit_placed.emit(row_index, world_x, world_y)
+    
+    def _update_placed_unit_positions(self):
+        """Reposition all placed units based on current map transform."""
+        for unit_item in self.placed_units:
+            scene_pos = self.world_to_scene(unit_item.world_x, unit_item.world_y)
+            unit_item.setPos(scene_pos)
+    
+    def _update_unit_count(self):
+        """Update the unit count label."""
+        count = len(self.placed_units)
+        self.unit_count_label.setText(f"Units: {count}/{self.max_units}")
+    
+    def clear_all_units(self):
+        """Remove all placed units."""
+        reply = QMessageBox.question(
+            self,
+            "Clear All",
+            "Remove all placed units?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            for unit_item in self.placed_units:
+                self.minimap_scene.removeItem(unit_item)
+            self.placed_units.clear()
+            self.placed_row_indices.clear()
+            self._update_unit_count()
+    
+    def get_placed_units_data(self) -> List[Dict]:
+        """Export placed units for scenario generation."""
+        return [
+            {
+                "row_index": u.unit_row_index,
+                "name": u.name,
+                "side": u.side,
+                "level": u.level,
+                "world_x": u.world_x,
+                "world_y": u.world_y,
+                "rotation": u.rotation(),
+                "formation": u.formation,
+            }
+            for u in self.placed_units
+        ]
+    
+    # ==================== End Placement Mode Methods ====================
     
     def resizeEvent(self, event):
         """Handle widget resize to rescale minimap when panel expands."""
         super().resizeEvent(event)
         if self.minimap_pixmap is not None:
             self.display_minimap()
+            self._update_placed_unit_positions()
 
     def on_minimap_resize(self, event):
         """Handle minimap label resize to rescale the displayed pixmap."""

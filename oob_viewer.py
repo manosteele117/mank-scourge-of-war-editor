@@ -168,6 +168,9 @@ class OOBViewer(QMainWindow):
 
         # Map view
         self.map_viewer = OOBMapWidget()
+        
+        # Wire tree selection to map for unit placement
+        self.tree.unit_selected.connect(self.on_tree_unit_selected)
 
         # Tab widget to switch between details and map views
         self.right_tab_widget = QTabWidget()
@@ -218,10 +221,12 @@ class OOBViewer(QMainWindow):
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         scenario_dir = os.path.join(base_dir, f"Generated_Scenario_{timestamp}")
-        
+
+        # Collect placed units data from the map widget
+        placed_units = self.map_viewer.get_placed_units_data()
 
         try:
-            self.data.save_scenario(scenario_dir, MAP_NAME, self.status_label.text())
+            self.data.save_scenario(scenario_dir, MAP_NAME, self.status_label.text(), placed_units)
             QMessageBox.information(
                 self,
                 "Save Successful",
@@ -281,6 +286,18 @@ class OOBViewer(QMainWindow):
         self.tree.select_unit(row_index)
         self.details.populate(row_index)
         self.visual.highlight_unit(row_index)
+    
+    def on_tree_unit_selected(self, row_index: int):
+        """Handle unit selection specifically from tree for map placement."""
+        # Get unit data
+        row = self.data.get_row(row_index)
+        unit_name = str(row.get("NAME1", "Unknown"))
+        side = int(row.get("SIDE 1", 1))
+        level = self.data.get_level_from_hierarchy(row)
+        formation = str(row.get("Formation", ""))
+        
+        # Send to map widget for placement mode
+        self.map_viewer.set_pending_unit(row_index, unit_name, side, level, formation)
 
     def on_unit_deleted(self, num_deleted: int):
         """Handle unit deletion from tree."""

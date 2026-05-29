@@ -213,7 +213,7 @@ class OOBData:
         df.to_csv(path, encoding="cp1252", index=False)
         self.filepath = path
     
-    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str) -> None:
+    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units) -> None:
         """
         Save a scenario CSV file in the specified directory.
 
@@ -274,6 +274,17 @@ class OOBData:
                     scenario_df[scenario_col] = df[oob_col].fillna("")
             else:
                 scenario_df[scenario_col] = ""
+
+        # Fill position data for placed units
+        if placed_units:
+            # Build a lookup: row_index -> placed unit data
+            placed_lookup = {pu["row_index"]: pu for pu in placed_units}
+            for i in scenario_df.index:
+                if i in placed_lookup:
+                    pu = placed_lookup[i]
+                    scenario_df.at[i, "south"] = pu["world_y"]
+                    scenario_df.at[i, "east"] = pu["world_x"]
+                    scenario_df.at[i, "dirSouth"] = pu["rotation"]
 
         os.makedirs(scenario_dir, exist_ok=True)
         path = os.path.join(scenario_dir, "scenario.csv")
