@@ -1,0 +1,12 @@
+<p align='center'><h1><color value='#000000'></h1></p>
+<p align='center'><h1>Arm�e du Nord VS</h1></p>
+<p align='center'><h1>Army of Low Countries</h1></p>
+<br>
+<p>Length of Play: 10:0</p>
+<p>Starting Time : 08:00</p>
+<p>Map: Nap_Aus_Zisterdorf</p>
+<br>
+<p>Requirements</p>
+<p>Mods: <color value='#ff0000'>KS Napoleon Mod, KS Supplemental Maps & KS Sprites <color value='#000000'></p>
+<br>
+<br>

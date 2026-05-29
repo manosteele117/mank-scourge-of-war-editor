@@ -11,6 +11,7 @@ from PySide6.QtGui import QBrush, QColor
 from oob_model import OOBData
 import pandas as pd
 from typing import List
+import traceback
 
 
 class OOBTreeWidget(QTreeWidget):
@@ -123,7 +124,7 @@ class OOBTreeWidget(QTreeWidget):
                 })
                 
             except ValueError as e:
-                raise ValueError(f"Invalid data in CSV: {str(e)}")
+                raise ValueError(f"Invalid data in CSV: {str(e)}\n{traceback.format_exc()}")
         
         # Second pass: sort by hierarchy level and add to tree
         items_data.sort(key=lambda x: x['level'])

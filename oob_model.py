@@ -1,6 +1,7 @@
 import pandas as pd
 from io import StringIO
 from typing import Tuple, List, Optional, Dict, Any
+import os
 
 
 class OOBData:
@@ -212,6 +213,88 @@ class OOBData:
         df.to_csv(path, encoding="cp1252", index=False)
         self.filepath = path
     
+    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str) -> None:
+        """
+        Save a scenario CSV file in the specified directory.
+
+        Maps OOB internal columns to scenario.csv columns where they match,
+        leaving unmatched columns empty.
+
+        Args:
+            scenario_dir: Directory to save the scenario.csv file in
+            map_name: Name of the map for the scenario - to be added to scenario.ini
+            oob_name: Name of the OOB for the scenario - to be added to top line of scenario.csv
+        """
+        import os
+        df = self._ensure_df().copy()
+
+        # Remove internal 'line_number' column
+        if "line_number" in df.columns:
+            df = df.drop(columns=["line_number"])
+
+        # Scenario CSV column order (from template)
+        scenario_cols = [
+            "userName", "id", "sideIndex", "armyIndex", "corpsIndex", "divisionIndex", "brigadeIndex", "regimentIndex", "battalionIndex", 
+            "ammo", "dirSouth", "dirEast", "south", "east", "formation", "headCount", "fatigue", "morale"
+        ]
+
+        # Mapping: scenario column -> OOB internal column (None = leave empty)
+        scenario_to_oob = {
+            "userName": "NAME1",
+            "id": "ID",
+            "sideIndex": "SIDE 1",
+            "armyIndex": "ARMY 2",
+            "corpsIndex": "CORPS 3",
+            "divisionIndex": "DIV 4",
+            "brigadeIndex": "BGDE 5",
+            "regimentIndex": "BTN 6",
+            "battalionIndex": None,  # no OOB equivalent
+            "ammo": "AMMO",
+            "dirSouth": None,        # no OOB equivalent
+            "dirEast": None,         # no OOB equivalent
+            "south": None,           # no OOB equivalent
+            "east": None,            # no OOB equivalent
+            "formation": "Formation",
+            "headCount": "Head Count",
+            "fatigue": "Fatigue",
+            "morale": "Morale"
+         }
+
+        scenario_df = pd.DataFrame()
+
+        # Integer columns that should default to 0 instead of empty string
+        int_columns = set(self.HIERARCHY_COLS + self.INT_COLUMNS)
+
+        for scenario_col in scenario_cols:
+            oob_col = scenario_to_oob.get(scenario_col)
+            if oob_col and oob_col in df.columns:
+                if oob_col in int_columns:
+                    scenario_df[scenario_col] = df[oob_col].fillna(0)
+                else:
+                    scenario_df[scenario_col] = df[oob_col].fillna("")
+            else:
+                scenario_df[scenario_col] = ""
+
+        os.makedirs(scenario_dir, exist_ok=True)
+        path = os.path.join(scenario_dir, "scenario.csv")
+        scenario_df.to_csv(path, encoding="cp1252", index=False)
+        self.filepath = path
+
+        # Insert a special MASTER line after the header (before data rows)
+        with open(path, "r", encoding="cp1252") as f:
+            lines = f.readlines()
+
+        master_fields = ["MASTER", oob_filename] + [""] * (len(scenario_cols) - 2)
+        master_line = ",".join(master_fields) + "\n"
+        lines.insert(1, master_line)
+
+        with open(path, "w", encoding="cp1252") as f:
+            f.writelines(lines)
+
+        # Copy template files into the scenario directory
+        _copy_templates(scenario_dir)
+    
+
     def get_row(self, row_index: int) -> pd.Series:
         """Get a single row by index."""
         return self._ensure_df().iloc[row_index]
@@ -232,7 +315,8 @@ class OOBData:
         for col in self.HIERARCHY_COLS:
             val = row.get(col, 0)
             if pd.isna(val):
-                raise ValueError(f"Line {row_index + 2}: Column '{col}' is missing or empty (expected an integer)")
+                print(f"OOB Hierarchy Warning: Line {row_index + 2}: Column '{col}' is missing or empty (expected an integer)\nAttempting to treat as 0, this really should be fixed though!\n")
+                val = 0  # treat missing hierarchy values as 0, but print a warning to console
             try:
                 key.append(int(val))
             except (ValueError, TypeError):
@@ -390,3 +474,21 @@ class OOBData:
     def paste_unit(self, parent_row_index: int, clipboard_data: Dict[str, Any]) -> int:
         """Paste a unit from clipboard as a duplicate under the given parent. (Not yet implemented.)"""
         raise NotImplementedError("Unit paste not yet implemented")
+
+
+def _copy_templates(scenario_dir: str):
+    """Copy template files from the templates/ folder into the scenario directory."""
+    import shutil
+    templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+    template_files = [
+        "battlescript.csv",
+        "EnglishScenIntro.txt",
+        "EnglishScenScreen.txt",
+        "maplocations.csv",
+        "scenario.ini",
+    ]
+    for template_file in template_files:
+        src_path = os.path.join(templates_dir, template_file)
+        dst_path = os.path.join(scenario_dir, template_file)
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, dst_path)

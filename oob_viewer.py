@@ -1,4 +1,6 @@
 import sys
+import os
+from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -119,14 +121,19 @@ class OOBViewer(QMainWindow):
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.setSpacing(8)
 
-        self.load_button = QPushButton("Load CSV")
+        self.load_button = QPushButton("Load OOB")
         self.load_button.clicked.connect(self.load_csv_dialog)
         controls_layout.addWidget(self.load_button)
 
-        self.save_button = QPushButton("Save CSV")
+        self.save_button = QPushButton("Save OOB")
         self.save_button.clicked.connect(self.save_csv_dialog)
         self.save_button.setEnabled(False)
         controls_layout.addWidget(self.save_button)
+
+        self.save_scenario_button = QPushButton("Save Scenario")
+        self.save_scenario_button.clicked.connect(self.save_scenario_dialog)
+        self.save_scenario_button.setEnabled(False)
+        controls_layout.addWidget(self.save_scenario_button)
 
         self.status_label = QLabel("No file loaded")
         controls_layout.addWidget(self.status_label)
@@ -194,6 +201,29 @@ class OOBViewer(QMainWindow):
         if path:
             self.save_csv(path)
 
+    def save_scenario_dialog(self):
+        MAP_NAME = "Waterloo"  # Todo
+        base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Output")
+        os.makedirs(base_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        scenario_dir = os.path.join(base_dir, f"Generated_Scenario_{timestamp}")
+        
+
+        try:
+            self.data.save_scenario(scenario_dir, MAP_NAME, self.status_label.text())
+            QMessageBox.information(
+                self,
+                "Save Successful",
+                f"Scenario file saved to:\n{scenario_dir}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save scenario:\n{str(e)}"
+            )
+
     def load_csv(self, path):
         try:
             self.data.load_csv(path)
@@ -212,6 +242,7 @@ class OOBViewer(QMainWindow):
 
             self.status_label.setText(path)
             self.save_button.setEnabled(True)
+            self.save_scenario_button.setEnabled(True)
 
         except Exception as e:
             QMessageBox.critical(

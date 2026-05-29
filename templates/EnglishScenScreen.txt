@@ -1,0 +1,170 @@
+<!-- break //
+// ################## SCREENS FOR THE END OF THE GAME ########################
+//
+-->
+$EndMajorFail 
+<p>Our army suffered a dreadful defeat near Waterloo.  No words can adequately describe the waste and horror of this tragic event.  The army performed poorly on all levels, from top to bottom.  Commanders performed with exceptionally bad judgement in the time and place of their attacks and entirely mismanaged even the simplest tasks on the defensive.  The sorriest lot of ensigns at any of our military academies would have done a better job commanding the armies than the so-called professionals currently in command.  A thorough investigation by the authorities is needed to weed out the numerous incompetents currently commanding our brave troops.  Our valiant men deserve better leadership than this.  Let's hope some changes are made so they can get it.</p>
+//
+//
+$EndMinorFail 
+<p>The bravery of our soldiers was no match for the ineptitude of our generals this day.  Our uncoordinated and poorly conceived attacks led to heavy losses to no lasting effect.  The attacks of the enemy found gaps in the lines that the greenest lieutenant would recognize as fatal flaws.  As a result, these assaults easily swept our dispirited soldiers from the field of battle.  Our performance in this battle near Waterloo will not be held in high esteem by students of military science.  A long and hard look at the current commanders is needed--new commanders could not do worse.</p>
+//
+//
+$EndDraw 
+<p>The roar of battle rang loud and long near the previously quiet town of Waterloo.  The valiant soldiers of our army met the enemy in heavy fighting.  The lines of battle swept forward and were swept back in turn.  The attacks were fierce and the defence was stout, but neither side could gain a lasting advantage. At the end of the day, both sides withdrew to their respective ridge-lines and set about reforming their battered formations.  It is entirely expected that the battle will resume on the morrow.  A better effort will be needed in the future if our army is to achieve victory on the field of battle.</p>
+//
+//
+$EndMinorSuccess 
+<p>This dispatch received from the field of battle.</p><br/><p>A fierce combat resulted as our forces and the enemy met near the town of Waterloo.  The fields and wood-lots near the town resounded to the roar of cannon, the blast of shell, and the rattle of musketry.  The lines of battle swept back and forth as attack met attack. Our soldiers inflicted significant losses on the enemy in both killed and captured.  They have retreated to strong positions and the battle may resume tomorrow.</p>
+//
+//
+$EndMajorSuccess 
+<p>We have this dispatch from our correspondent with the Army.</p><br/><p>Our forces met the enemy on the field of battle near Waterloo.  The battle was hard fought, with attack and counter-attack sweeping back and forth across the blood-soaked fields.  The enemy soldiers could not withstand the bravery and skill of the forces led by this Great Captain.  At the end of the battle the brilliant leadership of our commander resulted in victory for our valiant forces.  He rallied the troops and inspired them to brilliant feats of arms.  They swept the field of the enemy and are complete masters of the field.  The results of this day will go down in history and be studied and admired for generations to come.</p>
+//
+//
+$EndKilled 
+<p>We regret to inform our loyal readership that our gallant commander was killed in battle while leading his troops in the heavy fighting near Waterloo.  He stood at the head of an attack on the enemy when he was pierced by a ball from the foe.  In spite of the best efforts of the battalion surgeon, he passed from this earth not twenty minutes after being struck down.  His loss pierced the hearts of his men and the attack faltered after he fell.  His loss will be deeply felt, both by his men and by the rest of the army.  We have it on good authority that he was slated for higher command.  That vast potential is now lost to the army and the country, as well as his grieving family.</p>
+//
+//
+<!-- Open Play Battle Type Descriptions -->
+//
+$OpenAtt 
+<p><b>ATTACK Engagement</b></p>
+<br/><p>The enemy holds the Objective site.  The clock is running.  Get your forces close enough to the Objective site to contest it and stop the Objective Timer.  Then, take and hold the site against counter-attacks.</p>
+//
+$OpenDef 
+<p><b>DEFENSIVE Engagement</b></p>
+<br/><p>You own the Objective site.  The enemy wants to take your position.  Make your defensive deployments and wait for the attack that is sure to come.</p>
+//
+$OpenLOS 
+<p><b>LINE OF SIGHT Engagement</b></p>
+<br/><p>The enemy is out there, straight ahead of you. Make your plans quickly, as they will be advancing towards you shortly. The goals are to destroy the enemy and to secure any Objectives. Do these two things well, and you will gain enough grade points to win the battle.
+There can be one to three Objective sites, depending on the number set in the Sandbox options.</p>
+
+$OpenFind 
+<p><b>HUNT THEM DOWN Engagement</b></p>
+<br/><p>There can be one to ten Objective sites, depending on the number set in the Sandbox options.  The enemy can be anywhere on the map.  Send out cavalry scouts to find the enemy, then destroy them and secure any Objectives.</p>
+//
+<!-- Courier Messages  -->
+ 
+<!-- ######## FRAMEWORK TEXT FOR OUTGOING COURIER MESSAGE ###############
+// -->
+$CourMsg 
+<p><h3 align='center'> Dispatch </h3></p>
+<p>Time: <VAR=$msgtime></p>
+<p>From: <VAR=$msgsender></p>
+<p>To: <VAR=$msgrecv></p>
+<p>Execution Time: <VAR=$msgstart></p>
+<p></p>
+<p></p>
+<p><VAR=$msgrecv>, <VAR=$msgmeat></p>
+<p></p>
+<p></p>
+<p align='right'>Your obedient servant,</p>
+<p align='right'><VAR=$msgsender></p>
+<p></p>
+<!-- end general framework -->
+$CEnemySee  
+<p></p>
+<p>The enemy has been sighted in my vicinity.</p>
+<p></p>
+<p></p>
+<!-- break -->
+
+$CEnemyEng
+<p></p>
+<p>I have engaged the enemy.</p>
+<p></p>
+<!-- break -->
+
+// Courier Messages from Sandbox strategic AI
+//
+$CTacVP 
+<p>Your orders are to move to the indicated objective on your map and to hold it.  You may attack to drive out any enemy troops you may find there.</p>
+//
+//
+$CTacQuadVP
+<p>You are directed to move your unit to the indicated area and occupy any objectives in that zone.</p>
+//
+//
+$CTacQuad
+<p>March to the area shown on your map and hold it against any enemy units that may come your way.  Any enemy units in that area are to be attacked and driven out.</p>
+//
+//
+$CTacReserve
+<p>Your unit is currently the tactical reserve.  You are requested to hold at your current location until you receive further orders.</p>
+//
+//
+$CTacLoc
+<p>Move your unit to the designated location and assume a good defensive position.  Make sure you have good fields of fire and that you occupy the high ground wherever possible.</p>
+//
+//
+$CTacQuadLoc
+<p>Your orders are to move to the area indicated on the map and be prepared to defend it against any enemy attacks.</p>
+//
+//
+$CTacHold
+<p>Move your unit to the indicated position and wait there for further orders.</p>
+//
+//
+$COrders
+<p>You are ordered to attack at your own discretion.</p>
+//
+//
+$CFormation
+<p>You are ordered to change your formation.</p>
+//
+//
+$COrdersHold
+<p>Your orders are to hold the indicated position at all hazards.  Retreat is not an option!</p>
+//
+//
+$COrdersDefend
+<p>You are hereby directed to defend the indicated position with your unit.  You may retreat only if faced with overwhelming force.  You are not to risk destruction of your unit to hold this location.</p>
+//
+//
+$COrdersProbe
+<p>You are ordered to advance in the direction of the indicated position.  If you come in contact with the enemy, you are to feel his position, but you are not authorized to make a major attack.</p>
+//
+//
+$COrdersStay
+<p>You are requested to hold your current location until you receive further orders.</p>
+//
+//
+$COrdersBlitz
+<p>You are to attack and take the indicated position at all costs.  It is vitally important to drive the enemy from that position.</p>
+//
+//
+$COrdersAttack
+<p>You are ordered to attack the indicated position with all forces available to you.  This attack is to be made with full vigor, but not at the risk of your command.</p>
+//
+//
+$CDoneQuad
+<p>The indicated area is occupied, and no enemy units are present.  Please send new orders.</p>
+//
+//
+$CDoneVP
+<p>The objective has been occupied for the required amount of time, and no enemy units are in the area.  Please send new orders.</p>
+//
+//
+$CDoneLoc
+<p>This area is secured, and no enemy are in the area.  Please send new orders.</p>
+//
+//
+$CDoneHelp
+<p>Support urgently required.  We are under attack by superior forces and are being forced to fall back.  Send reinforcements at once or all will be lost!</p>
+//
+//
+$CUseRoads
+<p>Be sure that the roads are secure from attack and available for the trains and unescorted couriers to move without hindrance.</p>
+//
+//
+$CHighGround
+<p>Occupy the high ground and be sure that your artillery batteries have a clear field of fire.  It is important that this position be held.</p>
+//
+//
+$CMoveTo
+<p>Your orders are to move to the indicated location on your map as quickly as possible.  Use roads, especially for artillery units, and scout your advance with cavalry if available.  Keep the roads open and deploy in battle formation upon your arrival.</p>
+<!-- break -->
+
+<!-- END OF FILE -->
