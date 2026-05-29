@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QMessageBox,
+    QTabWidget,
 )
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtCore import Qt
@@ -97,6 +98,7 @@ from oob_validation import OOBValidator
 from oob_tree_view import OOBTreeWidget
 from oob_details_view import OOBDetailsWidget
 from oob_visual_view import OOBVisualWidget
+from oob_map_view import OOBMapWidget
 
 
 
@@ -164,15 +166,23 @@ class OOBViewer(QMainWindow):
         # Details view
         self.details = OOBDetailsWidget(self.data)
 
+        # Map view
+        self.map_viewer = OOBMapWidget()
+
+        # Tab widget to switch between details and map views
+        self.right_tab_widget = QTabWidget()
+        self.right_tab_widget.addTab(self.details, "Details")
+        self.right_tab_widget.addTab(self.map_viewer, "Map")
+
         self.left_splitter.addWidget(self.tree)
         self.left_splitter.addWidget(self.visual)
         self.left_splitter.setStretchFactor(0, 1)  # tree
         self.left_splitter.setStretchFactor(1, 2)  # visual
 
         self.main_splitter.addWidget(self.left_splitter)
-        self.main_splitter.addWidget(self.details)
+        self.main_splitter.addWidget(self.right_tab_widget)
         self.main_splitter.setStretchFactor(0, 7)  # left stack
-        self.main_splitter.setStretchFactor(1, 1)  # details
+        self.main_splitter.setStretchFactor(1, 1)  # details/map tabs
 
         self.layout.addWidget(self.main_splitter, 1)
 
