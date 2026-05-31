@@ -221,12 +221,9 @@ class MapUnitItem(QGraphicsItem):
         self.is_hovered = False
 
         # Generate default rectangle centered on (world_x, world_y)
-        self._pen = QPen(QColor(255, 255, 0), 2)
-        self._brush = QBrush(QColor(255, 255, 0, 40))
-        self._hover_brush = QBrush(QColor(255, 255, 0, 80))
-        self._selected_pen = QPen(QColor(255, 255, 0), 2)
         self._scene_polygon: Optional[QPolygonF] = None
         self._label: str = ""
+
 
         # Store row index for selection tracking
         self.setData(Qt.UserRole, unit_row_index)
@@ -293,16 +290,18 @@ class MapUnitItem(QGraphicsItem):
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        side_color = QColor("#2c5aa0") if self.side == 1 else QColor("#a02c2c")
         if self.isSelected():
-            painter.setPen(self._selected_pen)
-            painter.setBrush(self._brush)
+            side_color = side_color.lighter(150)
+            border_color = QColor("#ffff00")
         elif self.is_hovered:
-            painter.setPen(self._pen)
-            painter.setBrush(self._hover_brush)
+            side_color = side_color.lighter(120)
+            border_color = QColor("#64b5f6")
         else:
-            painter.setPen(self._pen)
-            painter.setBrush(self._brush)
+            border_color = QColor("#aaaaaa")
 
+        painter.setPen(QPen(border_color, 2))
+        painter.setBrush(QBrush(side_color))
         painter.drawPolygon(self._scene_polygon)
 
         if self._label and self._scene_polygon.size() > 0:
