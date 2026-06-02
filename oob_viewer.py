@@ -1,5 +1,6 @@
 import sys
 import os
+import configparser
 from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication,
@@ -167,7 +168,8 @@ class OOBViewer(QMainWindow):
         self.details = OOBDetailsWidget(self.data)
 
         # Map view
-        self.map_viewer = OOBMapWidget(oob_data=self.data)
+        self.config = self._load_config()
+        self.map_viewer = OOBMapWidget(oob_data=self.data, map_ini=self.config.get("map-ini"), drills=self.config.get("drills"))
 
         # Tab widget to switch between details and map views
         self.right_tab_widget = QTabWidget()
@@ -185,9 +187,22 @@ class OOBViewer(QMainWindow):
         self.main_splitter.setStretchFactor(1, 1)  # details/map tabs
 
         self.layout.addWidget(self.main_splitter, 1)
+        self.load_csv(csv_path)
 
-        if csv_path:
-            self.load_csv(csv_path)
+    def _load_config(self) -> dict:
+        """Load application configuration from app_config.ini."""
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "config", "app_config.ini"
+        )
+        parser = configparser.ConfigParser()
+        if os.path.exists(config_path):
+            parser.read(config_path)
+        return {
+            "map-ini": parser.get("paths", "map-ini", fallback=""),
+            "drills": parser.get("paths", "drills", fallback=""),
+        }
+
 
     def load_csv_dialog(self):
         path, _ = QFileDialog.getOpenFileName(

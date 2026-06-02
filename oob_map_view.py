@@ -25,6 +25,7 @@ from PIL import Image
 
 from utilities import get_tga_dimensions
 from formation_layout import calculate_road_formation, calculate_line_formation
+from formation import ActualFormation
 
 
 class OOBMapGraphicsView(QGraphicsView):
@@ -182,16 +183,18 @@ class OOBMapGraphicsView(QGraphicsView):
 
 class MapUnitItem(QGraphicsItem):
     """
-    A worldspace polygon on the minimap, always rendered as a rectangle.
+    A worldspace polygon on the minimap, rendered as either a rectangle or triangle.
 
-    The polygon is defined by world_x/world_y (center) and default dimensions
-    determined by a french infantry regiment in world units. It scales with the map and supports drag,
-    rotate, and selection.
+    Level 6 units are rendered as 2000x300 rectangles. All other levels are rendered
+    as 100x100 triangles. The polygon is defined by world_x/world_y (center) and
+    scales with the map. Supports drag, rotate, selection, and hover highlighting.
     """
 
-    # Default rectangle dimensions in world units
-    DEFAULT_WIDTH = 170*30 # 170 yards * 30 units/yard
-    DEFAULT_HEIGHT = 10*30 # 10 yards * 30 units/yard
+    # Level 6 rectangle dimensions in world units
+    RECT_WIDTH = 2000
+    RECT_HEIGHT = 300
+    # Triangle dimensions in world units
+    TRI_SIZE = 500
 
     def __init__(self, name: str, unit_row_index: int, side: int, level: int, formation: str, world_x: int, world_y: int, map_widget=None, parent=None):
         """
@@ -245,23 +248,46 @@ class MapUnitItem(QGraphicsItem):
         self.update()
 
     def _rebuild_scene_geometry(self):
-        """Recalculate local-space polygon from current world_x/world_y center."""
+        """Recalculate local-space polygon from current world_x/world_y center.
+        
+        Level 6 units: 2000x300 rectangle centered on (world_x, world_y).
+        All other levels: 100x100 isosceles triangle centered on (world_x, world_y).
+        """
         if self.map_widget is None:
             return
         self.prepareGeometryChange()
-        hw = self.DEFAULT_WIDTH / 2
-        hh = self.DEFAULT_HEIGHT / 2
-        corners = [
-            (self.world_x - hw, self.world_y - hh),
-            (self.world_x + hw, self.world_y - hh),
-            (self.world_x + hw, self.world_y + hh),
-            (self.world_x - hw, self.world_y + hh),
-        ]
         item_pos = self.pos()
         poly = QPolygonF()
-        for wx, wy in corners:
-            sp = self.map_widget.world_to_scene(wx, wy)
-            poly.append(sp - item_pos)
+        print(self.level)
+        if self.level == 6:
+            # Rectangle: 2000 wide x 300 tall, centered on world_x/world_y
+            hw = self.RECT_WIDTH / 2
+            hh = self.RECT_HEIGHT / 2
+            corners = [
+                (self.world_x - hw, self.world_y - hh),
+                (self.world_x + hw, self.world_y - hh),
+                (self.world_x + hw, self.world_y + hh),
+                (self.world_x - hw, self.world_y + hh),
+            ]
+            for wx, wy in corners:
+                sp = self.map_widget.world_to_scene(wx, wy)
+                poly.append(sp - item_pos)
+        else:
+            # Triangle: 100x100 isosceles, centered on world_x/world_y
+            # Apex at top, base at bottom, centroid at center
+            hw = self.TRI_SIZE / 2
+            hh = self.TRI_SIZE / 2
+            # Triangle vertices with centroid at (0,0) in local coords
+            # Apex (top), bottom-left, bottom-right
+            triangle_corners = [
+                (self.world_x, self.world_y - hh * 2 / 3),       # apex
+                (self.world_x - hw, self.world_y + hh / 3),      # bottom-left
+                (self.world_x + hw, self.world_y + hh / 3),      # bottom-right
+            ]
+            for wx, wy in triangle_corners:
+                sp = self.map_widget.world_to_scene(wx, wy)
+                poly.append(sp - item_pos)
+        
         self._scene_polygon = poly
 
     def update_from_world(self):
@@ -272,7 +298,7 @@ class MapUnitItem(QGraphicsItem):
     def boundingRect(self):
         """Return tight bounding rectangle."""
         if self._scene_polygon is not None and not self._scene_polygon.isEmpty():
-            return self._scene_polygon.boundingRect().adjusted(-10, -10, 10, 10)
+            return self._scene_polygon.boundingRect().adjusted(-5, -5, 5, 5)
         return QRectF()
 
     def shape(self) -> QPainterPath:
@@ -284,23 +310,29 @@ class MapUnitItem(QGraphicsItem):
         return path
 
     def paint(self, painter: QPainter, option, widget=None):
-        """Paint the polygon."""
+        """Paint the polygon with borders and hover/selection highlighting."""
         if self._scene_polygon is None or self._scene_polygon.isEmpty():
             return
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # Base side color
         side_color = QColor("#2c5aa0") if self.side == 1 else QColor("#a02c2c")
+        
+        # Apply highlighting based on selection/hover state
         if self.isSelected():
-            side_color = side_color.lighter(150)
+            side_color = side_color.lighter(170)
             border_color = QColor("#ffff00")
+            border_width = 0.025
         elif self.is_hovered:
-            side_color = side_color.lighter(120)
+            side_color = side_color.lighter(135)
             border_color = QColor("#64b5f6")
+            border_width = 0.02
         else:
-            border_color = QColor("#aaaaaa")
+            border_color = QColor("#888888")
+            border_width = 0.015
 
-        painter.setPen(QPen(border_color, 2))
+        painter.setPen(QPen(border_color, border_width))
         painter.setBrush(QBrush(side_color))
         painter.drawPolygon(self._scene_polygon)
 
@@ -334,14 +366,18 @@ class OOBMapWidget(QWidget):
     # Signals
     unit_placed = Signal(int, int, int)  # (row_index, world_x, world_y)
     
-    def __init__(self, oob_data=None, parent=None):
+    def __init__(self, oob_data=None, parent=None, map_ini: str = "", drills: str = ""):
         super().__init__(parent)
         
         # OOB data model (for retrieving unit hierarchy)
         self.oob_data = oob_data
         
+        # Configuration paths
+
+        self.map_ini_path = map_ini
+        self.drills_path = drills
+        
         # Map data storage
-        self.map_ini_path = None
         self.lsl_path = None
         self.minimap_path = None
         self.tga_width = None
@@ -362,6 +398,11 @@ class OOBMapWidget(QWidget):
         self.placed_shapes: List[MapUnitItem] = []
         
         self.init_ui()
+        if map_ini:
+            self.load_map_from_ini(map_ini)
+        if drills:
+            self.load_formations(drills)
+
     
     def init_ui(self):
         """Initialize the user interface."""
@@ -375,6 +416,10 @@ class OOBMapWidget(QWidget):
         self.load_button = QPushButton("Load Map")
         self.load_button.clicked.connect(self.load_map)
         control_layout.addWidget(self.load_button)
+        
+        self.load_formations_button = QPushButton("Load Formations")
+        self.load_formations_button.clicked.connect(self.load_formations)
+        control_layout.addWidget(self.load_formations_button)
         
         # Tile Scale control
         tile_scale_label = QLabel("Tile Scale:")
@@ -470,6 +515,35 @@ class OOBMapWidget(QWidget):
                 self,
                 "Map Load Error",
                 f"Failed to load map:\n{str(e)}"
+            )
+    
+    def load_formations(self, csv_path=None):
+        """Open file dialog to load a drills.csv file and populate formation archetypes."""
+        if csv_path is None:
+            home_dir = os.path.expanduser("~")
+            csv_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open Formations CSV",
+            home_dir,
+            "CSV Files (*.csv)"
+        )
+        
+        if not csv_path:
+            return
+        
+        try:
+            from formation import populate_formation_archetypes_from_csv
+            populate_formation_archetypes_from_csv(csv_path)
+            QMessageBox.information(
+                self,
+                "Formations Loaded",
+                f"Formation archetypes loaded from:\n{csv_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Formations Load Error",
+                f"Failed to load formations:\n{str(e)}"
             )
     
     def load_map_from_ini(self, ini_path: str):
@@ -836,28 +910,23 @@ class OOBMapWidget(QWidget):
         
         # Create context menu
         menu = QMenu(self)
-        road_action = menu.addAction("Road Formation")
-        line_action = menu.addAction("Line Formation")
+        action = menu.addAction(unit_item.formation) # Intially just fill with OOB formation, can add all possible ones later.
         menu.addSeparator()
         cancel_action = menu.addAction("Cancel")
         
         # Connect actions
-        road_action.triggered.connect(
-            lambda: self.apply_formation(unit_item, "road")
-        )
-        line_action.triggered.connect(
-            lambda: self.apply_formation(unit_item, "line")
+        action.triggered.connect(
+            lambda: self.apply_formation(unit_item, unit_item.formation)
         )
         
         # Show menu
         menu.exec(global_pos)
-    
+
     def apply_formation(self, parent_unit_item: MapUnitItem, formation_type: str):
         """Apply a formation (road or line) to a unit and all its children."""
         if self.oob_data is None:
             QMessageBox.warning(self, "Error", "OOB data not loaded.")
             return
-        
         try:
             # Get the parent unit's row data
             parent_row_index = parent_unit_item.unit_row_index
@@ -885,73 +954,160 @@ class OOBMapWidget(QWidget):
                     "row": sub_row,
                 }
             
-            if not children_keys:
-                QMessageBox.information(self, "No Children", "This unit has no subordinates to arrange.")
+            # Build ActualFormation strength recursively from children
+            def build_strength(row_index: int) -> 'ActualFormation':
+                sub_row = self.oob_data.get_row(row_index)
+                archetype_id = sub_row.get("Formation", "")
+                level = self.oob_data.get_level_from_hierarchy(sub_row)
+                if level is None:
+                    raise ValueError(f"Cannot determine level for row {row_index}")
+                if level >= 6:
+                    # Fighting formation: strength is Head Count (int)
+                    head_count = sub_row.get("Head Count", 0)
+                    return ActualFormation(archetype_id=archetype_id, strength=int(head_count))
+                else:
+                    # Command formation: strength is a list of direct sub-formations
+                    all_sub_indices = self.oob_data.get_subordinate_row_indices(row_index)
+                    # Only recurse into direct children (level = parent level + 1)
+                    direct_children = [
+                        idx for idx in all_sub_indices
+                        if self.oob_data.get_level_from_hierarchy(self.oob_data.get_row(idx)) == level + 1
+                    ]
+                    sub_formations = [build_strength(idx) for idx in direct_children]
+                    return ActualFormation(archetype_id=archetype_id, strength=sub_formations)
+            
+            parent_formation = build_strength(parent_row_index)
+            positions = parent_formation.get_positions()
+            
+            if not positions:
+                QMessageBox.information(self, "No Positions", "Formation has no valid positions to apply.")
                 return
             
-            # Calculate formation positions
-            if formation_type == "road":
-                positions = calculate_road_formation(
-                    parent_pos,
-                    parent_rotation,
-                    children_keys,
-                    all_units_by_key,
-                    spacing=100.0
-                )
-            elif formation_type == "line":
-                positions = calculate_line_formation(
-                    parent_pos,
-                    parent_rotation,
-                    children_keys,
-                    all_units_by_key,
-                    spacing=100.0
-                )
-            else:
-                QMessageBox.warning(self, "Error", f"Unknown formation type: {formation_type}")
-                return
+            # Build mapping from seq number to subordinate row data
+            # seq 1 = parent, seq 2+ = children in OOB order
+            seq_to_sub = {1: (parent_row_index, parent_row)}
+            for i, sub_row_index in enumerate(subordinate_indices):
+                sub_row = self.oob_data.get_row(sub_row_index)
+                seq_to_sub[i + 2] = (sub_row_index, sub_row)
             
-            # Apply positions to placed units and place any not yet on the map
+            # Calculate world positions for each unit from relative yard offsets
             units_to_select = [parent_unit_item]
-            for unit_key, (world_x, world_y) in list(positions.items())[1:]: # Skip the parent unit which is at index 0
-                row_index = all_units_by_key[unit_key]["row_index"]
-                row = all_units_by_key[unit_key]["row"]
+            
+            for seq_str, (rel_x_yards, rel_y_yards, length, depth) in positions.items():
+                seq = int(seq_str)
+                if seq == 1:
+                    # Parent stays where it is
+                    continue
                 
-                # Find the corresponding MapUnitItem
+                sub_row_index, sub_row = seq_to_sub.get(seq, (None, None))
+                if sub_row_index is None:
+                    continue
+                
+                # Convert relative yard positions to world coordinates
+                world_x = parent_unit_item.world_x + int(rel_x_yards * self.units_per_yard)
+                world_y = parent_unit_item.world_y + int(rel_y_yards * self.units_per_yard)
+                # Find existing placed unit or place new one
                 unit_item = None
                 for placed_unit in self.placed_units:
-                    if placed_unit.unit_row_index == row_index:
+                    if placed_unit.unit_row_index == sub_row_index:
                         unit_item = placed_unit
                         break
                 
                 if unit_item is not None:
-                    # Unit is already placed - update its position
+                    # Unit already placed - update its position
                     unit_item.world_x = world_x
                     unit_item.world_y = world_y
-                    
-                    # Update scene position
                     scene_pos = self.world_to_scene(world_x, world_y)
                     unit_item.setPos(scene_pos)
+                    unit_item._rebuild_scene_geometry()
                     units_to_select.append(unit_item)
                 else:
-                    # Unit is not yet placed - place it at the formation position
+                    # Unit not yet placed - place it at the formation position
                     unit_data = {
-                        "row_index": row_index,
-                        "name": row.get("NAME1", f"Unit {row_index}"),
-                        "side": int(row.get("SIDE 1", 1)),
-                        "level": self.oob_data.get_level_from_hierarchy(row),
-                        "formation": row.get("Formation", ""),
+                        "name": sub_row.get("NAME1", f"Unit {sub_row_index}"),
+                        "side": int(sub_row.get("SIDE 1", 1)),
+                        "level": self.oob_data.get_level_from_hierarchy(sub_row),
+                        "formation": sub_row.get("Formation", ""),
                     }
-                    self._place_unit(row_index, world_x, world_y, unit_data)
+                    self._place_unit(sub_row_index, world_x, world_y, unit_data)
                     
-                    # Find the newly created unit item and add to selection
+                    # Find the newly created unit and add to selection
                     for placed_unit in self.placed_units:
-                        if placed_unit.unit_row_index == row_index:
+                        if placed_unit.unit_row_index == sub_row_index:
                             units_to_select.append(placed_unit)
                             break
             
             # Select all units in the formation
             for unit in units_to_select:
                 unit.setSelected(True)
+            
+    #         if not children_keys:
+    #             QMessageBox.information(self, "No Children", "This unit has no subordinates to arrange.")
+    #             return
+            
+    #         # Calculate formation positions
+    #         if formation_type == "road":
+    #             positions = calculate_road_formation(
+    #                 parent_pos,
+    #                 parent_rotation,
+    #                 children_keys,
+    #                 all_units_by_key,
+    #                 spacing=100.0
+    #             )
+    #         elif formation_type == "line":
+    #             positions = calculate_line_formation(
+    #                 parent_pos,
+    #                 parent_rotation,
+    #                 children_keys,
+    #                 all_units_by_key,
+    #                 spacing=100.0
+    #             )
+    #         else:
+    #             QMessageBox.warning(self, "Error", f"Unknown formation type: {formation_type}")
+    #             return
+            
+    #         # Apply positions to placed units and place any not yet on the map
+    #         units_to_select = [parent_unit_item]
+    #         for unit_key, (world_x, world_y) in list(positions.items())[1:]: # Skip the parent unit which is at index 0
+    #             row_index = all_units_by_key[unit_key]["row_index"]
+    #             row = all_units_by_key[unit_key]["row"]
+                
+    #             # Find the corresponding MapUnitItem
+    #             unit_item = None
+    #             for placed_unit in self.placed_units:
+    #                 if placed_unit.unit_row_index == row_index:
+    #                     unit_item = placed_unit
+    #                     break
+                
+    #             if unit_item is not None:
+    #                 # Unit is already placed - update its position
+    #                 unit_item.world_x = world_x
+    #                 unit_item.world_y = world_y
+                    
+    #                 # Update scene position
+    #                 scene_pos = self.world_to_scene(world_x, world_y)
+    #                 unit_item.setPos(scene_pos)
+    #                 units_to_select.append(unit_item)
+    #             else:
+    #                 # Unit is not yet placed - place it at the formation position
+    #                 unit_data = {
+    #                     "row_index": row_index,
+    #                     "name": row.get("NAME1", f"Unit {row_index}"),
+    #                     "side": int(row.get("SIDE 1", 1)),
+    #                     "level": self.oob_data.get_level_from_hierarchy(row),
+    #                     "formation": row.get("Formation", ""),
+    #                 }
+    #                 self._place_unit(row_index, world_x, world_y, unit_data)
+                    
+    #                 # Find the newly created unit item and add to selection
+    #                 for placed_unit in self.placed_units:
+    #                     if placed_unit.unit_row_index == row_index:
+    #                         units_to_select.append(placed_unit)
+    #                         break
+            
+    #         # Select all units in the formation
+    #         for unit in units_to_select:
+    #             unit.setSelected(True)
             
         except Exception as e:
             import traceback
