@@ -3,22 +3,18 @@ import os
 import configparser
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QStyledItemDelegate,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QSizePolicy,
-    QFileDialog,
-    QLabel,
-    QPushButton,
-    QSplitter,
-    QMessageBox,
-    QTabWidget,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QSizePolicy, QFileDialog, QLabel, QPushButton, QSplitter, QMessageBox, QTabWidget,
 )
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtCore import Qt
+
+from core.oob_model import OOBData
+from core.oob_validation import OOBValidator
+from gui.oob_tree_view import OOBTreeWidget
+from gui.oob_details_view import OOBDetailsWidget
+from gui.oob_visual_view import OOBVisualWidget
+from gui.oob_map_view import OOBMapWidget
 
 
 def apply_dark_theme(app: QApplication) -> None:
@@ -94,14 +90,6 @@ def apply_dark_theme(app: QApplication) -> None:
         }
     """)
 
-from oob_model import OOBData
-from oob_validation import OOBValidator
-from oob_tree_view import OOBTreeWidget
-from oob_details_view import OOBDetailsWidget
-from oob_visual_view import OOBVisualWidget
-from oob_map_view import OOBMapWidget
-
-
 
 class OOBViewer(QMainWindow):
     def __init__(self, csv_path=None):
@@ -110,7 +98,6 @@ class OOBViewer(QMainWindow):
         self.setWindowTitle("Order of Battle Viewer")
         self.resize(1400, 900)
 
-        # Initialize data model
         self.data = OOBData()
         self.validator = OOBValidator(self.data)
 
@@ -119,7 +106,6 @@ class OOBViewer(QMainWindow):
 
         self.layout = QVBoxLayout(self.central)
 
-        # Top controls
         controls_layout = QHBoxLayout()
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.setSpacing(8)
@@ -150,51 +136,45 @@ class OOBViewer(QMainWindow):
 
         self.layout.addWidget(controls_container, 0)
 
-        # Main content split left/right with tree and visual stacked vertically on the left,
-        # and details shown on the right.
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.left_splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # Tree view
         self.tree = OOBTreeWidget(self.data)
         self.tree.unit_selected.connect(self.on_unit_selected)
         self.tree.unit_deleted.connect(self.on_unit_deleted)
 
-        # Visual view (formations visualization)
         self.visual = OOBVisualWidget(self.data)
         self.visual.unit_selected.connect(self.on_unit_selected)
 
-        # Details view
         self.details = OOBDetailsWidget(self.data)
 
-        # Map view
         self.config = self._load_config()
-        self.map_viewer = OOBMapWidget(oob_data=self.data, map_ini=self.config.get("map-ini"), drills=self.config.get("drills"))
+        self.map_viewer = OOBMapWidget(
+            oob_data=self.data,
+            map_ini=self.config.get("map-ini"),
+            drills=self.config.get("drills"))
 
-        # Tab widget to switch between details and map views
         self.right_tab_widget = QTabWidget()
         self.right_tab_widget.addTab(self.details, "Details")
         self.right_tab_widget.addTab(self.map_viewer, "Map")
 
         self.left_splitter.addWidget(self.tree)
         self.left_splitter.addWidget(self.visual)
-        self.left_splitter.setStretchFactor(0, 1)  # tree
-        self.left_splitter.setStretchFactor(1, 2)  # visual
+        self.left_splitter.setStretchFactor(0, 1)
+        self.left_splitter.setStretchFactor(1, 2)
 
         self.main_splitter.addWidget(self.left_splitter)
         self.main_splitter.addWidget(self.right_tab_widget)
-        self.main_splitter.setStretchFactor(0, 7)  # left stack
-        self.main_splitter.setStretchFactor(1, 1)  # details/map tabs
+        self.main_splitter.setStretchFactor(0, 7)
+        self.main_splitter.setStretchFactor(1, 1)
 
         self.layout.addWidget(self.main_splitter, 1)
         self.load_csv(csv_path)
 
     def _load_config(self) -> dict:
-        """Load application configuration from app_config.ini."""
         config_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "config", "app_config.ini"
-        )
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config", "app_config.ini")
         parser = configparser.ConfigParser()
         if os.path.exists(config_path):
             parser.read(config_path)
@@ -203,66 +183,46 @@ class OOBViewer(QMainWindow):
             "drills": parser.get("paths", "drills", fallback=""),
         }
 
-
     def load_csv_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open OOB CSV",
-            "",
-            "CSV Files (*.csv)"
-        )
-
+        path, _ = QFileDialog.getOpenFileName(self, "Open OOB CSV", "", "CSV Files (*.csv)")
         if path:
             self.load_csv(path)
 
     def save_csv_dialog(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save OOB CSV",
-            "",
-            "CSV Files (*.csv)"
-        )
-
+        path, _ = QFileDialog.getSaveFileName(self, "Save OOB CSV", "", "CSV Files (*.csv)")
         if path:
             self.save_csv(path)
 
     def save_scenario_dialog(self):
-        MAP_NAME = "Waterloo"  # Todo
-        base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Output")
+        MAP_NAME = "Waterloo"
+        base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Output")
         os.makedirs(base_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         scenario_dir = os.path.join(base_dir, f"Generated_Scenario_{timestamp}")
 
-        # Collect placed units data from the map widget
         placed_units = self.map_viewer.get_placed_units_data()
 
         try:
             self.data.save_scenario(scenario_dir, MAP_NAME, self.status_label.text(), placed_units)
             QMessageBox.information(
-                self,
-                "Save Successful",
-                f"Scenario file saved to:\n{scenario_dir}"
-            )
+                self, "Save Successful",
+                f"Scenario file saved to:\n{scenario_dir}")
         except Exception as e:
             QMessageBox.critical(
-                self,
-                "Save Error",
-                f"Failed to save scenario:\n{str(e)}"
-            )
+                self, "Save Error",
+                f"Failed to save scenario:\n{str(e)}")
 
     def load_csv(self, path):
         try:
             self.data.load_csv(path)
 
-            # Validate unit stats and print warnings to console
             warnings = self.validator.validate_unit_stats()
             if warnings:
                 print("OOB Validation Warnings:")
                 for warning in warnings:
                     print(f"  {warning}\n")
 
-            # Populate tree and visual views, clear details
             self.tree.populate()
             self.visual.populate()
             self.details.clear()
@@ -272,36 +232,25 @@ class OOBViewer(QMainWindow):
             self.save_scenario_button.setEnabled(True)
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Load Error",
-                str(e)
-            )
+            QMessageBox.critical(self, "Load Error", str(e))
 
     def save_csv(self, path):
         try:
             self.data.save_csv(path)
             QMessageBox.information(
-                self,
-                "Save Successful",
-                f"OOB file saved to:\n{path}"
-            )
+                self, "Save Successful",
+                f"OOB file saved to:\n{path}")
         except Exception as e:
             QMessageBox.critical(
-                self,
-                "Save Error",
-                f"Failed to save CSV:\n{str(e)}"
-            )
+                self, "Save Error",
+                f"Failed to save CSV:\n{str(e)}")
 
     def on_unit_selected(self, row_index: int):
-        """Handle unit selection from tree or visual view."""
         self.tree.select_unit(row_index)
         self.details.populate(row_index)
         self.visual.highlight_unit(row_index)
-        
+
     def on_unit_deleted(self, num_deleted: int):
-        """Handle unit deletion from tree."""
-        # Regenerate the visual view after deletion
         self.visual.populate()
 
 
@@ -309,9 +258,7 @@ def main():
     app = QApplication(sys.argv)
     apply_dark_theme(app)
 
-    # Optional: pass CSV path as command line argument
     csv_path = None
-
     if len(sys.argv) > 1:
         csv_path = sys.argv[1]
 

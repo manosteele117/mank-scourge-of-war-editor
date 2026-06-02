@@ -1,7 +1,7 @@
 ﻿import sys
 sys.path.insert(0, '.')
-from oob_model import OOBData
-from oob_visual_layout import HierarchicalLayout
+from core.oob_model import OOBData
+from gui.oob_visual_layout import HierarchicalLayout
 
 # Load data
 data = OOBData()

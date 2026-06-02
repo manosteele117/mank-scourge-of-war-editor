@@ -1,27 +1,19 @@
 from PySide6.QtWidgets import (
-    QWidget,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
+    QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 from PySide6.QtCore import Qt
-from oob_model import OOBData
+from core.oob_model import OOBData
 import pandas as pd
 
 
 class OOBDetailsWidget(QWidget):
-    """
-    Widget for displaying and editing unit detail information.
-    Uses a single table for all fields.
-    """
-    
+    """Widget for displaying and editing unit detail information."""
+
     def __init__(self, data: OOBData, parent=None):
         super().__init__(parent)
-        
         self.data = data
         self.current_row_index = None
-        
-        # Single detail table
+
         self.details_table = QTableWidget()
         self.details_table.setColumnCount(2)
         self.details_table.setHorizontalHeaderLabels(["Field", "Value"])
@@ -32,8 +24,7 @@ class OOBDetailsWidget(QWidget):
         self.details_table.setShowGrid(False)
         self.details_table.setAlternatingRowColors(True)
         self.details_table.itemChanged.connect(self.on_detail_cell_changed)
-        
-        # Layout
+
         layout = QVBoxLayout(self)
         self.setStyleSheet("""
             QTableWidget {
@@ -54,55 +45,42 @@ class OOBDetailsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.details_table)
         self.setLayout(layout)
-    
+
     def populate(self, row_index: int) -> None:
-        """
-        Populate the detail views for a specific row.
-        
-        Args:
-            row_index: Index of the row to display
-        """
         if self.data.df is None or row_index is None:
             self.clear()
             return
-        
+
         self.current_row_index = row_index
         row = self.data.df.iloc[row_index]
-        
+
         self.details_table.clearContents()
         self.details_table.setRowCount(len(row.index))
-        
+
         for i, column in enumerate(row.index):
             field_item = QTableWidgetItem(str(column))
             value_item = QTableWidgetItem(str(row[column]))
-            
             field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)
             self.details_table.setItem(i, 0, field_item)
             self.details_table.setItem(i, 1, value_item)
-        
-        # Resize rows to fit content
+
         self.details_table.resizeRowsToContents()
-        # Resize first column to fit content, let second column stretch to fill space
         self.details_table.resizeColumnToContents(0)
-    
+
     def clear(self) -> None:
-        """Clear the detail view."""
         self.current_row_index = None
         self.details_table.clearContents()
         self.details_table.setRowCount(0)
-    
+
     def on_detail_cell_changed(self, item: QTableWidgetItem) -> None:
-        """Handle changes to detail table cells and update the dataframe."""
         if self.current_row_index is None or self.data.df is None:
             return
-        
+
         row_in_table = item.row()
         col = item.column()
-        
-        # Only update on value column changes (column 1)
         if col != 1:
             return
-        
+
         field_name = self.details_table.item(row_in_table, 0).text()
         if field_name:
             new_value = item.text()
@@ -112,6 +90,5 @@ class OOBDetailsWidget(QWidget):
                 try:
                     new_value = int(new_value)
                 except ValueError:
-                    pass  # Keep as string if not an integer
-            
+                    pass
             self.data.set_cell(self.current_row_index, field_name, new_value)
