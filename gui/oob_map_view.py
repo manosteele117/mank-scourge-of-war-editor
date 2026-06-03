@@ -712,11 +712,14 @@ class OOBMapWidget(QWidget):
             self, "Clear All", "Remove all placed units?",
             QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            for unit_item in self.placed_units:
-                self.minimap_scene.removeItem(unit_item)
-            self.placed_units.clear()
-            self.placed_row_indices.clear()
-            self._update_unit_count()
+            self._clear_all_units()
+
+    def _clear_all_units(self):
+        for unit_item in self.placed_units:
+            self.minimap_scene.removeItem(unit_item)
+        self.placed_units.clear()
+        self.placed_row_indices.clear()
+        self._update_unit_count()
 
     def get_placed_units_data(self) -> List[Dict]:
         return [

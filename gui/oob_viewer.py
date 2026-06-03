@@ -224,6 +224,7 @@ class OOBViewer(QMainWindow):
                 for warning in warnings:
                     print(f"  {warning}\n")
 
+            self.map_viewer._clear_all_units()
             self.tree.populate()
             self.visual.populate()
             self.details.clear()
