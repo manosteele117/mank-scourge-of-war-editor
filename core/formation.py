@@ -1,4 +1,5 @@
 from typing import List, Self
+from collections import defaultdict
 import traceback
 
 
@@ -135,33 +136,54 @@ class ActualFormation:
             except Exception:
                 raise Exception(f"Error calculating dimensions for seq {seq}: {traceback.format_exc()}")
 
+        base_row_dist = float(str(self.archetype.row_dist).rstrip('+'))
+        base_col_dist = float(str(self.archetype.col_dist).rstrip('+'))
+
+        row_max_depth = {}
+        col_max_length = {}
+
+        for seq in sorted_seqs:
+            grid_x, grid_y, _ = rebased_layout[seq]
+            length, depth = self.subunit_dimensions[seq]
+            if grid_x not in row_max_depth:
+                row_max_depth[grid_x] = depth
+            else:
+                row_max_depth[grid_x] = max(row_max_depth[grid_x], depth)
+            if grid_y not in col_max_length:
+                col_max_length[grid_y] = length
+            else:
+                col_max_length[grid_y] = max(col_max_length[grid_y], length)
+
+        all_grid_x = sorted(row_max_depth.keys())
+        all_grid_y = sorted(col_max_length.keys())
+
+        row_offsets = {0: 0}
+        for gx in [g for g in all_grid_x if g > 0]:
+            prev_gx = max((g for g in all_grid_x if g < gx), default=0)
+            row_offsets[gx] = row_offsets[prev_gx] + row_max_depth[prev_gx] + base_row_dist
+        for gx in reversed([g for g in all_grid_x if g < 0]):
+            next_gx = min((g for g in all_grid_x if g > gx), default=0)
+            row_offsets[gx] = row_offsets[next_gx] - row_max_depth[gx] - base_row_dist
+
+        col_offsets = {0: 0}
+        for gy in [g for g in all_grid_y if g > 0]:
+            prev_gy = max((g for g in all_grid_y if g < gy), default=0)
+            col_offsets[gy] = col_offsets[prev_gy] + max(col_max_length[prev_gy], col_max_length[gy]) + base_col_dist
+        for gy in reversed([g for g in all_grid_y if g < 0]):
+            next_gy = min((g for g in all_grid_y if g > gy), default=0)
+            col_offsets[gy] = col_offsets[next_gy] - max(col_max_length[next_gy], col_max_length[gy]) - base_col_dist
+
         for seq in sorted_seqs:
             grid_x, grid_y, pos_info = rebased_layout[seq]
 
             if seq == '1':
                 length, depth = self.subunit_dimensions[seq]
-                positions[seq] = (0, 0, length, depth)
+                positions[seq] = (-length / 2, 0, length, depth)
             else:
-                grow_col = str(pos_info['col_dist']).endswith('+')
-                grow_row = str(pos_info['row_dist']).endswith('+')
-                x_offset = grid_y * float(str(pos_info['col_dist']).rstrip('+'))
-                y_offset = grid_x * float(str(pos_info['row_dist']).rstrip('+'))
-
-                for prev_seq in sorted_seqs:
-                    if prev_seq == seq:
-                        break
-                    prev_grid_x, prev_grid_y, _ = rebased_layout[prev_seq]
-                    if prev_grid_y == grid_y and 0 <= prev_grid_x < grid_x and grow_row:
-                        y_offset += (self.subunit_dimensions[prev_seq][1]/2 + self.subunit_dimensions[seq][1]/2) * (-1 if grid_x < 0 else 1)
-                    if prev_grid_y == grid_y and grid_x < prev_grid_x <= 0 and grow_row:
-                        y_offset += (self.subunit_dimensions[prev_seq][1]/2 + self.subunit_dimensions[seq][1]/2) * (-1 if grid_x < 0 else 1)
-                    if prev_grid_x == grid_x and 0 <= prev_grid_y < grid_y and grow_col:
-                        x_offset += (self.subunit_dimensions[prev_seq][0]/2 + self.subunit_dimensions[seq][0]/2) * (-1 if grid_y < 0 else 1)
-                    if prev_grid_x == grid_x and grid_y < prev_grid_y <= 0 and grow_col:
-                        x_offset += (self.subunit_dimensions[prev_seq][0]/2 + self.subunit_dimensions[seq][0]/2) * (-1 if grid_y < 0 else 1)
-
+                x_offset = col_offsets.get(grid_y, 0)
+                y_offset = row_offsets.get(grid_x, 0)
                 length, depth = self.subunit_dimensions[seq]
-                positions[seq] = (x_offset, y_offset, length, depth)
+                positions[seq] = (x_offset - length / 2, y_offset, length, depth)
 
         return positions
 
@@ -169,10 +191,12 @@ class ActualFormation:
         layout = self.get_positions()
         if not layout:
             return (10, 10)
-        all_x = [pos[0] for pos in layout.values()]
-        all_y = [pos[1] for pos in layout.values()]
-        length = max(all_x) - min(all_x)
-        depth = max(all_y) - min(all_y)
+        all_left = [x for x, y, l, d in layout.values()]
+        all_right = [x + l for x, y, l, d in layout.values()]
+        all_top = [y for x, y, l, d in layout.values()]
+        all_bottom = [y + d for x, y, l, d in layout.values()]
+        length = max(all_right) - min(all_left)
+        depth = max(all_bottom) - min(all_top)
         self.length = length
         self.depth = depth
         return length, depth

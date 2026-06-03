@@ -793,7 +793,7 @@ class OOBMapWidget(QWidget):
                     raise ValueError(f"Cannot determine level for row {row_index}")
                 if level >= 6:
                     head_count = sub_row.get("Head Count", 0)
-                    return ActualFormation(archetype_id=archetype_id, strength=int(head_count))
+                    return ActualFormation(archetype_id=archetype_id, strength=int(head_count / MapUnitItem.SPRITE_SCALE))
                 else:
                     all_sub_indices = self.oob_data.get_subordinate_row_indices(row_index)
                     # Filter to direct children that are one level down and not supply wagons
@@ -806,7 +806,7 @@ class OOBMapWidget(QWidget):
 
             parent_formation = build_strength(parent_row_index)
             positions = parent_formation.get_positions()
-            #plot_rectangles(positions, title=f"Formation: {formation_type}")  # Debug visualization
+            plot_rectangles(positions, title=f"Formation: {formation_type}")  # Debug visualization
 
             if not positions:
                 QMessageBox.information(self, "No Positions",
@@ -836,15 +836,17 @@ class OOBMapWidget(QWidget):
 
             for seq_str, (rel_x_yards, rel_y_yards, length, depth) in positions.items():
                 seq = int(seq_str)
-                if seq == 1:
+                if seq == 1 or seq == 2: # Skip the first two positions which represent the commander and standard bearer and don't have units associated with them in the OOB data
                     continue
 
-                sub_row_index, sub_row = seq_to_sub.get(seq, (None, None))
+                sub_row_index, sub_row = seq_to_sub.get(seq-1, (None, None))
                 if sub_row_index is None:
                     continue
 
-                rot_x = rel_x_yards * cos_a - rel_y_yards * sin_a
-                rot_y = rel_x_yards * sin_a + rel_y_yards * cos_a
+                center_x = rel_x_yards + length / 2
+                center_y = rel_y_yards + depth / 2
+                rot_x = center_x * cos_a - center_y * sin_a
+                rot_y = center_x * sin_a + center_y * cos_a
                 world_x = parent_unit_item.world_x + int(rot_x * self.units_per_yard)
                 world_y = parent_unit_item.world_y + int(rot_y * self.units_per_yard)
 

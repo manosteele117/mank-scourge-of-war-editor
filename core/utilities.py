@@ -30,17 +30,17 @@ def get_tga_dimensions(filepath):
 
 
 def plot_rectangles(rectangles: dict, title: str = "Rectangles", figsize: tuple = (10, 10)):
-    """Plot rectangles centered on given coordinates."""
+    """Plot rectangles. Input: (left_x, top_y, length, depth)."""
     fig, ax = plt.subplots(figsize=figsize)
     for rect_id, (x, y, length, depth) in rectangles.items():
         rect = Rectangle(
-            (x - length / 2, y - depth / 2),
+            (x, y),
             width=length, height=depth,
             edgecolor="blue", facecolor="lightblue",
             alpha=0.5, linewidth=1.5,
         )
         ax.add_patch(rect)
-        ax.text(x, y, str(rect_id), ha="center", va="center",
+        ax.text(x + length / 2, y + depth / 2, str(rect_id), ha="center", va="center",
                 fontsize=10, fontweight="bold", color="darkblue")
     ax.set_aspect("equal")
     ax.set_title(title)
@@ -50,8 +50,8 @@ def plot_rectangles(rectangles: dict, title: str = "Rectangles", figsize: tuple 
     ax.legend(loc="upper right")
     all_x, all_y = [], []
     for x, y, length, depth in rectangles.values():
-        all_x.extend([x - length / 2, x + length / 2])
-        all_y.extend([y - depth / 2, y + depth / 2])
+        all_x.extend([x, x + length])
+        all_y.extend([y, y + depth])
     margin = 10
     ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
     ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
