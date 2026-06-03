@@ -180,7 +180,7 @@ class ActualFormation:
 
 def populate_formation_archetypes_from_csv(file_path):
     """Parse formation definitions from a CSV file, reading blocks of lines."""
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, 'r', encoding='cp1252') as f:
         lines = f.readlines()
 
     data_lines = lines[1:]
@@ -246,6 +246,20 @@ def populate_formation_archetypes_from_csv(file_path):
             print(f"Skipping block due to parsing error: {e}")
             print(f"Block lines: {block}")
     for block in lvl4_blocks:
+        try:
+            FormationArchetype(block)
+        except Exception as e:
+            traceback.print_exc()
+            print(f"Skipping block due to parsing error: {e}")
+            print(f"Block lines: {block}")
+    for block in lvl3_blocks:
+        try:
+            FormationArchetype(block)
+        except Exception as e:
+            traceback.print_exc()
+            print(f"Skipping block due to parsing error: {e}")
+            print(f"Block lines: {block}")
+    for block in lvl2_blocks:
         try:
             FormationArchetype(block)
         except Exception as e:

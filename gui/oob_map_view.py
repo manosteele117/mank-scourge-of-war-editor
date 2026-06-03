@@ -384,7 +384,7 @@ class OOBMapWidget(QWidget):
         if map_ini:
             self.load_map_from_ini(map_ini)
         if drills:
-            self.load_formations(drills)
+            self._load_formations(drills)
 
     def init_ui(self):
         main_layout = QVBoxLayout()
@@ -398,7 +398,7 @@ class OOBMapWidget(QWidget):
         control_layout.addWidget(self.load_button)
 
         self.load_formations_button = QPushButton("Load Formations")
-        self.load_formations_button.clicked.connect(self.load_formations)
+        self.load_formations_button.clicked.connect(self.load_formations_dialog)
         control_layout.addWidget(self.load_formations_button)
 
         tile_scale_label = QLabel("Tile Scale:")
@@ -468,9 +468,9 @@ class OOBMapWidget(QWidget):
         self.setLayout(main_layout)
 
     def load_map(self):
-        home_dir = os.path.expanduser("~")
+        # current_dir = os.path.curdir
         ini_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Map Configuration", home_dir, "INI Files (*.ini)")
+            self, "Open Map Configuration", "", "INI Files (*.ini)")
         if not ini_path:
             return
         try:
@@ -478,11 +478,13 @@ class OOBMapWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Map Load Error", f"Failed to load map:\n{str(e)}")
 
-    def load_formations(self, csv_path=None):
-        if csv_path is None:
-            home_dir = os.path.expanduser("~")
-            csv_path, _ = QFileDialog.getOpenFileName(
-                self, "Open Formations CSV", home_dir, "CSV Files (*.csv)")
+    def load_formations_dialog(self, csv_path=None):
+        # current_dir = os.path.curdir
+        csv_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Formations CSV", "", "CSV Files (*.csv)")
+        self._load_formations(csv_path)
+
+    def _load_formations(self, csv_path):
         if not csv_path:
             return
         try:
@@ -524,7 +526,7 @@ class OOBMapWidget(QWidget):
         if minimap_path.suffix.lower() == ".dds":
             img = Image.open(str(minimap_path)).convert("RGBA")
             width, height = img.size
-            data = img.tobytes("raw", "BGRA")
+            data = img.tobytes("raw", "RGBA")
             self.minimap_pixmap = QPixmap.fromImage(
                 QImage(data, width, height, QImage.Format.Format_RGBA8888))
         else:
