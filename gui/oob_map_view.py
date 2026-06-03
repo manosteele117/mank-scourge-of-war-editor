@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QSizePolicy, QGraphicsView, QGraphicsScene,
     QGraphicsItem, QMenu,
 )
-from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor, QPainterPath, QPolygonF
+from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor, QPainterPath, QPolygonF, QWheelEvent
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PIL import Image
 
@@ -21,7 +21,9 @@ from constants import COLOR_SIDE_1, COLOR_SIDE_2
 
 class OOBMapGraphicsView(QGraphicsView):
     """Custom graphics view for the minimap with placement mode support."""
-
+    MIN_ZOOM = 0.1
+    MAX_ZOOM = 50.0
+    ZOOM_FACTOR = 1.2
     def __init__(self, scene, map_widget, parent=None):
         super().__init__(scene, parent)
         self.map_widget = map_widget
@@ -34,7 +36,20 @@ class OOBMapGraphicsView(QGraphicsView):
         self.rotation_reference_items = []  # store (item, start_angle) pairs
         self._last_mouse_angle = None
 
+        # Middle-click pan state
+        self.is_panning = False
+        self._pan_start_pos = None
+
+        self.zoom_level = 1.0
+
     def mouseMoveEvent(self, event):
+        if self.is_panning and self._pan_start_pos is not None:
+            delta = event.pos() - self._pan_start_pos
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            self._pan_start_pos = event.pos()
+            event.accept()
+            return
         if self.is_rotating and self.rotation_reference_items:
             scene_pos = self.mapToScene(event.pos())
             if self._last_mouse_angle is not None:
@@ -67,8 +82,12 @@ class OOBMapGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
-            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            super().mousePressEvent(event)
+            # Manual middle-click panning
+            self.is_panning = True
+            self._pan_start_pos = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
         elif event.button() == Qt.MouseButton.RightButton:
             # Start rotation mode
             items = self.scene().selectedItems()
@@ -105,9 +124,12 @@ class OOBMapGraphicsView(QGraphicsView):
             super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.MiddleButton:
-            self.setDragMode(QGraphicsView.NoDrag)
-            super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.MiddleButton and self.is_panning:
+            self.is_panning = False
+            self._pan_start_pos = None
+            self.unsetCursor()
+            event.accept()
+            return
         elif event.button() == Qt.MouseButton.RightButton and self.is_rotating:
             self.is_rotating = False
             self.rotation_reference_items.clear()
@@ -169,10 +191,17 @@ class OOBMapGraphicsView(QGraphicsView):
         else:
             super().contextMenuEvent(event)
 
-    def wheelEvent(self, event):
-        zoom_factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-        self.scale(zoom_factor, zoom_factor)
-        event.accept()
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        angle = event.angleDelta().y()
+        factor = self.ZOOM_FACTOR if angle > 0 else 1 / self.ZOOM_FACTOR
+
+        new_zoom = self.zoom_level * factor
+        if new_zoom < self.MIN_ZOOM or new_zoom > self.MAX_ZOOM:
+            return
+
+        self.setTransformationAnchor(self.ViewportAnchor.AnchorUnderMouse)
+        self.scale(factor, factor)
+        self.zoom_level = new_zoom
 
 
 class MapUnitItem(QGraphicsItem):
