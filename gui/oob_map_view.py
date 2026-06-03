@@ -8,10 +8,10 @@ import math
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox,
     QFileDialog, QMessageBox, QSizePolicy, QGraphicsView, QGraphicsScene,
-    QGraphicsItem, QMenu,
+    QGraphicsItem, QGraphicsEllipseItem, QMenu,
 )
 from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor, QPainterPath, QPolygonF, QWheelEvent
-from PySide6.QtCore import Qt, QPointF, QRectF, Signal
+from PySide6.QtCore import Qt, QPointF, QRectF, Signal, QTimer
 from PIL import Image
 
 from core.utilities import get_tga_dimensions, plot_rectangles
@@ -575,8 +575,8 @@ class OOBMapWidget(QWidget):
         for unit in placed_units_backup:
             self.minimap_scene.addItem(unit)
 
-        self.minimap_view.fitInView(
-            self.minimap_pixmap_item.boundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        #self.minimap_view.fitInView(
+        #    self.minimap_pixmap_item.boundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def on_minimap_mouse_move(self, event):
         if self.minimap_pixmap is None or self.tga_width is None:
@@ -782,7 +782,7 @@ class OOBMapWidget(QWidget):
 
             def build_strength(row_index: int) -> ActualFormation:
                 sub_row = self.oob_data.get_row(row_index)
-                archetype_id = sub_row.get("Formation", "")
+                archetype_id = sub_row.get("Formation", "")  # TODO: switch this to use the actual input formation, currently only one loads.
                 level = self.oob_data.get_level_from_hierarchy(sub_row)
                 if level is None:
                     raise ValueError(f"Cannot determine level for row {row_index}")
@@ -801,7 +801,7 @@ class OOBMapWidget(QWidget):
 
             parent_formation = build_strength(parent_row_index)
             positions = parent_formation.get_positions()
-            plot_rectangles(positions, title=f"Formation: {formation_type}")  # Debug visualization
+            #plot_rectangles(positions, title=f"Formation: {formation_type}")  # Debug visualization
 
             if not positions:
                 QMessageBox.information(self, "No Positions",
@@ -825,6 +825,10 @@ class OOBMapWidget(QWidget):
 
             units_to_select = [parent_unit_item]
 
+            angle_rad = math.radians(parent_unit_item.rotation())
+            cos_a = math.cos(angle_rad)
+            sin_a = math.sin(angle_rad)
+
             for seq_str, (rel_x_yards, rel_y_yards, length, depth) in positions.items():
                 seq = int(seq_str)
                 if seq == 1:
@@ -834,8 +838,10 @@ class OOBMapWidget(QWidget):
                 if sub_row_index is None:
                     continue
 
-                world_x = parent_unit_item.world_x + int(rel_x_yards * self.units_per_yard)
-                world_y = parent_unit_item.world_y + int(rel_y_yards * self.units_per_yard)
+                rot_x = rel_x_yards * cos_a - rel_y_yards * sin_a
+                rot_y = rel_x_yards * sin_a + rel_y_yards * cos_a
+                world_x = parent_unit_item.world_x + int(rot_x * self.units_per_yard)
+                world_y = parent_unit_item.world_y + int(rot_y * self.units_per_yard)
 
                 unit_item = None
                 for placed_unit in self.placed_units:
@@ -846,10 +852,15 @@ class OOBMapWidget(QWidget):
                 if unit_item is not None:
                     unit_item.world_x = world_x
                     unit_item.world_y = world_y
+                    unit_item.setRotation(parent_unit_item.rotation())
                     scene_pos = self.world_to_scene(world_x, world_y)
                     unit_item.setPos(scene_pos)
                     unit_item._rebuild_scene_geometry()
                     units_to_select.append(unit_item)
+
+                    sub_level = self.oob_data.get_level_from_hierarchy(sub_row)
+                    if sub_level is not None and sub_level < 6:
+                        self.apply_formation(unit_item, formation_type)
                 else:
                     unit_data = {
                         "name": sub_row.get("NAME1", f"Unit {sub_row_index}"),
@@ -862,8 +873,14 @@ class OOBMapWidget(QWidget):
                     self._place_unit(sub_row_index, world_x, world_y, unit_data)
                     for placed_unit in self.placed_units:
                         if placed_unit.unit_row_index == sub_row_index:
+                            unit_item = placed_unit
+                            unit_item.setRotation(parent_unit_item.rotation())
                             units_to_select.append(placed_unit)
                             break
+
+                    sub_level = self.oob_data.get_level_from_hierarchy(sub_row)
+                    if sub_level is not None and sub_level < 6:
+                        self.apply_formation(unit_item, formation_type)
 
             for unit in units_to_select:
                 unit.setSelected(True)
@@ -874,6 +891,125 @@ class OOBMapWidget(QWidget):
             QMessageBox.critical(
                 self, "Formation Error",
                 f"Failed to apply formation:\n{str(e)}\n\n{tb_str}")
+
+    def on_unit_double_clicked(self, row_index: int):
+        unit_item = None
+        for placed_unit in self.placed_units:
+            if placed_unit.unit_row_index == row_index:
+                unit_item = placed_unit
+                break
+
+        if unit_item is None:
+            return
+
+        scene_pos = self.world_to_scene(unit_item.world_x, unit_item.world_y)
+
+        zoom_rect = self._compute_zoom_bounds(unit_item)
+        if zoom_rect is not None:
+            self.minimap_view.fitInView(zoom_rect, Qt.AspectRatioMode.KeepAspectRatio)
+            self.minimap_view.centerOn(zoom_rect.center())
+            self.minimap_view.zoom_level = self.minimap_view.transform().m11()
+
+        self._ping_position(scene_pos)
+
+    def _compute_zoom_bounds(self, unit_item: 'MapUnitItem') -> Optional[QRectF]:
+        BUFFER = 5000
+
+        cx = unit_item.world_x
+        cy = unit_item.world_y
+
+        all_x = [cx]
+        all_y = [cy]
+        visited = set()
+
+        def collect_subordinates(row_idx: int):
+            if row_idx in visited:
+                return
+            visited.add(row_idx)
+            sub_indices = self.oob_data.get_subordinate_row_indices(row_idx)
+            for sub_idx in sub_indices:
+                sub_row = self.oob_data.get_row(sub_idx)
+                if "SupplyWagon" in str(sub_row.get("Formation", "")):
+                    continue
+                for placed_unit in self.placed_units:
+                    if placed_unit.unit_row_index == sub_idx:
+                        all_x.append(placed_unit.world_x)
+                        all_y.append(placed_unit.world_y)
+                        break
+
+        collect_subordinates(unit_item.unit_row_index)
+
+        min_x = min(all_x) - BUFFER
+        max_x = max(all_x) + BUFFER
+        min_y = min(all_y) - BUFFER
+        max_y = max(all_y) + BUFFER
+
+        p1 = self.world_to_scene(int(min_x), int(min_y))
+        p2 = self.world_to_scene(int(max_x), int(max_y))
+
+        return QRectF(p1, p2).normalized()
+
+    def _ping_position(self, scene_pos: QPointF):
+        existing = [
+            item for item in self.minimap_scene.items()
+            if isinstance(item, QGraphicsEllipseItem) and item.data(0) == "ping"
+        ]
+        for item in existing:
+            self.minimap_scene.removeItem(item)
+
+        ping_item = QGraphicsEllipseItem(QRectF(-3, -3, 6, 6))
+        self.minimap_scene.addItem(ping_item)
+        ping_item.setPos(scene_pos)
+        ping_item.setPen(QPen(QColor(255, 255, 255, 200), 3))
+        ping_item.setBrush(QBrush(QColor(255, 255, 255, 60)))
+        ping_item.setData(0, "ping")
+        ping_item.setZValue(100)
+
+        outer_ping = QGraphicsEllipseItem(QRectF(-60, -60, 120, 120))
+        self.minimap_scene.addItem(outer_ping)
+        outer_ping.setPos(scene_pos)
+        outer_ping.setPen(QPen(QColor(200, 230, 255, 150), 2))
+        outer_ping.setBrush(QBrush(QColor(200, 230, 255, 30)))
+        outer_ping.setData(0, "ping")
+        outer_ping.setZValue(99)
+
+        timer = QTimer()
+        timer.setInterval(50)
+        timer.setSingleShot(False)
+
+        radius = 3.0
+        opacity = 0.8
+        outer_radius = 60.0
+        outer_opacity = 0.6
+
+        def animate():
+            nonlocal radius, opacity, outer_radius, outer_opacity
+            radius += 1.5
+            opacity -= 0.025
+            outer_radius += 1.0
+            outer_opacity -= 0.015
+
+            if opacity <= 0:
+                opacity = 0
+            if outer_opacity <= 0:
+                outer_opacity = 0
+
+            ping_item.setRect(-radius, -radius, radius * 2, radius * 2)
+            ping_item.setPen(QPen(QColor(255, 255, 255, int(opacity * 255)), 3))
+            ping_item.setBrush(QBrush(QColor(255, 255, 255, int(opacity * 60))))
+
+            outer_ping.setRect(-outer_radius, -outer_radius, outer_radius * 2, outer_radius * 2)
+            outer_ping.setPen(QPen(QColor(200, 230, 255, int(outer_opacity * 255)), 2))
+            outer_ping.setBrush(QBrush(QColor(200, 230, 255, int(outer_opacity * 30))))
+
+            if opacity <= 0 or outer_opacity <= 0:
+                self.minimap_scene.removeItem(ping_item)
+                self.minimap_scene.removeItem(outer_ping)
+                timer.stop()
+                timer.deleteLater()
+
+        timer.timeout.connect(animate)
+        timer.start()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

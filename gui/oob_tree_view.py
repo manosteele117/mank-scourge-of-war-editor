@@ -17,14 +17,17 @@ class OOBTreeWidget(QTreeWidget):
     Signals:
         unit_deleted: Emitted when a unit is deleted; carries number of units deleted
         unit_selected: Emitted when a unit is selected; carries row index
+        unit_double_clicked: Emitted when a unit is double-clicked; carries row index
     """
 
     unit_deleted = Signal(int)
     unit_selected = Signal(int)
+    unit_double_clicked = Signal(int)
     delete_requested = Signal()
     copy_requested = Signal()
     paste_requested = Signal()
     insert_template_requested = Signal()
+    zoom_to_unit_requested = Signal(int)
 
     def __init__(self, data: OOBData, parent=None):
         super().__init__(parent)
@@ -288,6 +291,7 @@ class OOBTreeWidget(QTreeWidget):
         menu = QMenu()
         menu.addAction("Delete", self.action_delete)
         menu.addSeparator()
+        menu.addAction("Zoom to Unit", self.action_zoom_to_unit)
         menu.addAction("Collapse All", self.action_collapse_all)
         menu.addAction("Expand All", self.action_expand_all)
         menu.addSeparator()
@@ -295,6 +299,16 @@ class OOBTreeWidget(QTreeWidget):
         menu.addAction("Copy CSV Format to Clipboard", self.action_copy_csv_format)
 
         menu.exec(self.mapToGlobal(position))
+
+    def action_zoom_to_unit(self) -> None:
+        items = self.selectedItems()
+        if not items:
+            return
+        item = items[0]
+        row_index = item.data(0, Qt.UserRole)
+        if row_index is None:
+            return
+        self.zoom_to_unit_requested.emit(row_index)
 
     def action_delete(self) -> None:
         items = self.selectedItems()
