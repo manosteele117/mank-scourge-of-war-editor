@@ -13,8 +13,8 @@ from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PIL import Image
 
-from core.utilities import get_tga_dimensions
-from core.formation import ActualFormation
+from core.utilities import get_tga_dimensions, plot_rectangles
+from core.formation import ActualFormation, FormationArchetype
 from constants import COLOR_SIDE_1, COLOR_SIDE_2
 
 
@@ -143,16 +143,19 @@ class MapUnitItem(QGraphicsItem):
     """
     A worldspace polygon on the minimap, rendered as either a rectangle or triangle.
 
-    Level 6 units are rendered as 2000x300 rectangles. All other levels are rendered
-    as triangles. Supports drag, rotate, selection, and hover highlighting.
+    Level 6 units are rendered as rectangles sized to their formation dimensions.
+    All other levels are rendered as triangles. Supports drag, rotate, selection,
+    and hover highlighting.
     """
 
-    RECT_WIDTH = 2000
-    RECT_HEIGHT = 300
+    DEFAULT_RECT_WIDTH = 2000 # if its a square, something is messed up
+    DEFAULT_RECT_HEIGHT = 2000
     TRI_SIZE = 500
+    SPRITE_SCALE = 6 # usually 1:6 as far as I know. TODO: Expose in gui
 
     def __init__(self, name: str, unit_row_index: int, side: int, level: int,
-                 formation: str, world_x: int, world_y: int, map_widget=None, parent=None):
+                 formation: str, world_x: int, world_y: int, head_count: int = 0,
+                 map_widget=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.unit_row_index = unit_row_index
@@ -161,11 +164,25 @@ class MapUnitItem(QGraphicsItem):
         self.formation = formation
         self.world_x = world_x
         self.world_y = world_y
+        self.head_count = head_count
         self.map_widget = map_widget
         self.is_hovered = False
 
         self._scene_polygon: Optional[QPolygonF] = None
         self._label: str = ""
+
+        # Compute level-6 rectangle dimensions from formation if available
+        self.world_width = self.DEFAULT_RECT_WIDTH
+        self.world_height = self.DEFAULT_RECT_HEIGHT
+        if self.level == 6 and self.formation and self.formation in FormationArchetype.formations:
+            try:
+                af = ActualFormation(archetype_id=self.formation, strength=int(self.head_count / self.SPRITE_SCALE))
+                length_yards, depth_yards = af.get_dimensions()
+                upy = self.map_widget.units_per_yard if self.map_widget else 30
+                self.world_width = length_yards * upy
+                self.world_height = depth_yards * upy
+            except Exception:
+                pass  # fall back to defaults
 
         self.setData(Qt.UserRole, unit_row_index)
         self.setAcceptHoverEvents(True)
@@ -186,8 +203,8 @@ class MapUnitItem(QGraphicsItem):
         item_pos = self.pos()
         poly = QPolygonF()
         if self.level == 6:
-            hw = self.RECT_WIDTH / 2
-            hh = self.RECT_HEIGHT / 2
+            hw = self.world_width / 2
+            hh = self.world_height / 2
             corners = [
                 (self.world_x - hw, self.world_y - hh),
                 (self.world_x + hw, self.world_y - hh),
@@ -243,7 +260,7 @@ class MapUnitItem(QGraphicsItem):
             border_color = QColor("#64b5f6")
             border_width = 0.02
         else:
-            border_color = QColor("#888888")
+            border_color = QColor("#ffffff")
             border_width = 0.015
 
         painter.setPen(QPen(border_color, border_width))
@@ -598,10 +615,12 @@ class OOBMapWidget(QWidget):
         side = unit_data.get("side", 1)
         level = unit_data.get("level", 1)
         formation = unit_data.get("formation", "")
+        head_count = unit_data.get("head_count", 0)
 
         unit_item = MapUnitItem(
             name=name, unit_row_index=row_index, side=side, level=level,
-            formation=formation, world_x=world_x, world_y=world_y, map_widget=self)
+            formation=formation, world_x=world_x, world_y=world_y,
+            head_count=head_count, map_widget=self)
 
         scene_pos = self.world_to_scene(world_x, world_y)
         unit_item.setPos(scene_pos)
@@ -707,15 +726,17 @@ class OOBMapWidget(QWidget):
                     return ActualFormation(archetype_id=archetype_id, strength=int(head_count))
                 else:
                     all_sub_indices = self.oob_data.get_subordinate_row_indices(row_index)
+                    # Filter to direct children that are one level down and not supply wagons
                     direct_children = [
                         idx for idx in all_sub_indices
-                        if self.oob_data.get_level_from_hierarchy(self.oob_data.get_row(idx)) == level + 1
+                        if self.oob_data.get_level_from_hierarchy(self.oob_data.get_row(idx)) == level + 1 and "SupplyWagon" not in self.oob_data.get_row(idx).get("Formation", "")
                     ]
-                    sub_formations = [build_strength(idx) for idx in direct_children]
+                    sub_formations = [None, None] + [build_strength(idx) for idx in direct_children]  # None values represent 1 and 2, which are flag bearer and commander(?) of the unit and don't need to get placed.
                     return ActualFormation(archetype_id=archetype_id, strength=sub_formations)
 
             parent_formation = build_strength(parent_row_index)
             positions = parent_formation.get_positions()
+            plot_rectangles(positions, title=f"Formation: {formation_type}")  # Debug visualization
 
             if not positions:
                 QMessageBox.information(self, "No Positions",
@@ -723,7 +744,17 @@ class OOBMapWidget(QWidget):
                 return
 
             seq_to_sub = {1: (parent_row_index, parent_row)}
-            for i, sub_row_index in enumerate(subordinate_indices):
+
+            # Filter to direct children only (one level down from parent),
+            # excluding supply wagons which don't get placed on the map.
+            level = self.oob_data.get_level_from_hierarchy(parent_row)
+            direct_children = [
+                idx for idx in subordinate_indices
+                if self.oob_data.get_level_from_hierarchy(self.oob_data.get_row(idx)) == level + 1
+                and "SupplyWagon" not in self.oob_data.get_row(idx).get("Formation", "")
+            ]
+
+            for i, sub_row_index in enumerate(direct_children):
                 sub_row = self.oob_data.get_row(sub_row_index)
                 seq_to_sub[i + 2] = (sub_row_index, sub_row)
 
@@ -760,7 +791,9 @@ class OOBMapWidget(QWidget):
                         "side": int(sub_row.get("SIDE 1", 1)),
                         "level": self.oob_data.get_level_from_hierarchy(sub_row),
                         "formation": sub_row.get("Formation", ""),
+                        "head_count": int(sub_row.get("Head Count", 0) or 0),
                     }
+                    print(unit_data)
                     self._place_unit(sub_row_index, world_x, world_y, unit_data)
                     for placed_unit in self.placed_units:
                         if placed_unit.unit_row_index == sub_row_index:

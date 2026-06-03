@@ -87,6 +87,12 @@ class ActualFormation:
         self.depth = None
         self.subunit_dimensions = {}
         self.get_dimensions()
+    
+    def __str__(self):
+        return f"Formation: {self.archetype.name}, Subunits/Strength: {self.strength}."
+    
+    def __repr__(self):
+        return f"Formation: {self.archetype.name}, Subunits/Strength: {self.strength}."
 
     def get_layout(self) -> dict:
         layout: dict[int, tuple[float, float]] = {}
@@ -120,7 +126,9 @@ class ActualFormation:
                 if seq in ['1', '2']:
                     self.subunit_dimensions[seq] = 2.5, 1.8
                 elif isinstance(self.strength, list) and int(seq) <= len(self.strength):
-                    subunit = self.strength[int(seq) - 3]
+                    subunit = self.strength[int(seq) - 1]
+                    if (subunit is None):
+                        self.subunit_dimensions[seq] = 2.5, 1.8
                     self.subunit_dimensions[seq] = subunit.get_dimensions()
                 else:
                     self.subunit_dimensions[seq] = float(self.archetype.col_dist), float(self.archetype.row_dist)

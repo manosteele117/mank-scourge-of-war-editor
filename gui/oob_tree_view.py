@@ -259,6 +259,7 @@ class OOBTreeWidget(QTreeWidget):
                         "side": int(row.get("SIDE 1", 1) or 1),
                         "level": int(self.data.get_level_from_hierarchy(row) or 1),
                         "formation": str(row.get("Formation", "")),
+                        "head_count": int(row.get("Head Count", 0) or 0),
                     }
 
                     mime_data = QMimeData()
