@@ -117,7 +117,8 @@ print("\nTests:")
 all_pass &= check_no_overlap(friant_pos, "Friant top-level")
 all_pass &= check_centers_aligned_x(friant_pos, "Friant top-level")
 
-plot_rectangles(friant_pos, title=f"Formation: {name}")
+plot_rectangles(friant_pos, title=f"Formation: {name}",
+                origin_offsets=(friant.origin_offset_x, friant.origin_offset_y))
 
 print("\n" + "=" * 60)
 print("Case 2: JeanMartin Petit (Column)")
@@ -149,7 +150,8 @@ if combat_seqs:
     else:
         print(f"  PASS: top row offset = {actual_offset:.1f} behind origin")
 
-plot_rectangles(jm_pos, title=f"Formation: {name2}")
+plot_rectangles(jm_pos, title=f"Formation: {name2}",
+                origin_offsets=(jm.origin_offset_x, jm.origin_offset_y))
 
 print("\n" + "=" * 60)
 if all_pass:

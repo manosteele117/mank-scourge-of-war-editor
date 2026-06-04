@@ -29,9 +29,47 @@ def get_tga_dimensions(filepath):
         return final_results[0]['width'], final_results[0]['height']
 
 
-def plot_rectangles(rectangles: dict, title: str = "Rectangles", figsize: tuple = (10, 10)):
-    """Plot rectangles. Input: (left_x, top_y, length, depth)."""
+def plot_rectangles(rectangles: dict, title: str = "Rectangles", figsize: tuple = (10, 10),
+                    origin_offsets: tuple = None):
+    """Plot rectangles from origin offsets. Input: (left_x, top_y, length, depth).
+    origin_offsets: (ox, oy) distance from top-left of bounding box to origin.
+    Draws bounding box with origin at correct offset, individual unit rects, and origin dot."""
     fig, ax = plt.subplots(figsize=figsize)
+
+    if not rectangles:
+        ax.set_title(title)
+        plt.tight_layout()
+        plt.show()
+        return
+
+    all_left = [x for x, y, l, d in rectangles.values()]
+    all_right = [x + l for x, y, l, d in rectangles.values()]
+    all_top = [y for x, y, l, d in rectangles.values()]
+    all_bottom = [y + d for x, y, l, d in rectangles.values()]
+    bbox_left = min(all_left)
+    bbox_top = min(all_top)
+    bbox_width = max(all_right) - bbox_left
+    bbox_height = max(all_bottom) - bbox_top
+
+    if origin_offsets:
+        ox, oy = origin_offsets
+    else:
+        ox = -bbox_left
+        oy = -bbox_top
+
+    rect = Rectangle(
+        (bbox_left, bbox_top),
+        width=bbox_width, height=bbox_height,
+        edgecolor="red", facecolor="none",
+        linewidth=2, linestyle="--",
+        label="Bounding box",
+    )
+    ax.add_patch(rect)
+
+    origin_world_x = bbox_left + ox
+    origin_world_y = bbox_top + oy
+    ax.plot(origin_world_x, origin_world_y, 'ro', markersize=6, zorder=5, label="Origin")
+
     for rect_id, (x, y, length, depth) in rectangles.items():
         rect = Rectangle(
             (x, y),
@@ -48,13 +86,9 @@ def plot_rectangles(rectangles: dict, title: str = "Rectangles", figsize: tuple 
     ax.set_ylabel("Y")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper right")
-    all_x, all_y = [], []
-    for x, y, length, depth in rectangles.values():
-        all_x.extend([x, x + length])
-        all_y.extend([y, y + depth])
     margin = 10
-    ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
-    ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
+    ax.set_xlim(bbox_left - margin, bbox_left + bbox_width + margin)
+    ax.set_ylim(bbox_top - margin, bbox_top + bbox_height + margin)
     ax.invert_yaxis()
     plt.tight_layout()
     plt.show()

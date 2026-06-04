@@ -236,16 +236,23 @@ class MapUnitItem(QGraphicsItem):
         self._scene_polygon: Optional[QPolygonF] = None
         self._label: str = ""
 
-        # Compute level-6 rectangle dimensions from formation if available
+        # Compute rectangle dimensions from formation if available
         self.world_width = self.DEFAULT_RECT_WIDTH
         self.world_height = self.DEFAULT_RECT_HEIGHT
-        if self.level == 6 and self.formation and self.formation in FormationArchetype.formations:
+        self.origin_offset_x = self.DEFAULT_RECT_WIDTH / 2
+        self.origin_offset_y = self.DEFAULT_RECT_HEIGHT / 2
+        if self.formation and self.formation in FormationArchetype.formations:
             try:
-                af = ActualFormation(archetype_id=self.formation, strength=int(self.head_count / self.SPRITE_SCALE))
+                if self.map_widget and self.map_widget.oob_data:
+                    af = self.map_widget.build_strength(self.unit_row_index)
+                else:
+                    af = ActualFormation(archetype_id=self.formation, strength=int(self.head_count / self.SPRITE_SCALE))
                 length_yards, depth_yards = af.get_dimensions()
                 upy = self.map_widget.units_per_yard if self.map_widget else 30
                 self.world_width = length_yards * upy
                 self.world_height = depth_yards * upy
+                self.origin_offset_x = af.origin_offset_x * upy
+                self.origin_offset_y = af.origin_offset_y * upy
             except Exception:
                 pass  # fall back to defaults
 
@@ -268,13 +275,13 @@ class MapUnitItem(QGraphicsItem):
         item_pos = self.pos()
         poly = QPolygonF()
         if self.level == 6:
-            hw = self.world_width / 2
-            hh = self.world_height / 2
+            ox = self.origin_offset_x
+            oy = self.origin_offset_y
             corners = [
-                (self.world_x - hw, self.world_y - hh),
-                (self.world_x + hw, self.world_y - hh),
-                (self.world_x + hw, self.world_y + hh),
-                (self.world_x - hw, self.world_y + hh),
+                (self.world_x - ox, self.world_y - oy),
+                (self.world_x - ox + self.world_width, self.world_y - oy),
+                (self.world_x - ox + self.world_width, self.world_y - oy + self.world_height),
+                (self.world_x - ox, self.world_y - oy + self.world_height),
             ]
             for wx, wy in corners:
                 sp = self.map_widget.world_to_scene(wx, wy)
@@ -376,7 +383,6 @@ class OOBMapWidget(QWidget):
 
         self.placed_units: List[MapUnitItem] = []
         self.placed_row_indices: set = set()
-        self.max_units = 50
         self.unit_count_label = None
         self.placed_shapes: List[MapUnitItem] = []
 
@@ -423,7 +429,7 @@ class OOBMapWidget(QWidget):
         self.units_per_yard_spinbox.valueChanged.connect(self.on_units_per_yard_changed)
         control_layout.addWidget(self.units_per_yard_spinbox)
 
-        self.unit_count_label = QLabel("Units: 0/50")
+        self.unit_count_label = QLabel("Units: 0")
         self.unit_count_label.setMaximumWidth(100)
         control_layout.addWidget(self.unit_count_label)
 
@@ -643,11 +649,6 @@ class OOBMapWidget(QWidget):
                 f"Each unit can only be placed once.")
             return
 
-        if len(self.placed_units) >= self.max_units:
-            QMessageBox.warning(self, "Limit Reached",
-                                f"Maximum {self.max_units} units can be placed.")
-            return
-
         world_x, world_y = self.scene_to_world(scene_pos.x(), scene_pos.y())
         self._place_unit(row_index, world_x, world_y, unit_data)
 
@@ -700,6 +701,25 @@ class OOBMapWidget(QWidget):
         self._update_unit_count()
         self.unit_placed.emit(row_index, world_x, world_y)
 
+    def build_strength(self, row_index: int) -> ActualFormation:
+        sub_row = self.oob_data.get_row(row_index)
+        archetype_id = sub_row.get("Formation", "")
+        level = self.oob_data.get_level_from_hierarchy(sub_row)
+        if level is None:
+            raise ValueError(f"Cannot determine level for row {row_index}")
+        if level >= 6:
+            head_count = sub_row.get("Head Count", 0)
+            return ActualFormation(archetype_id=archetype_id, strength=int(head_count / MapUnitItem.SPRITE_SCALE))
+        else:
+            all_sub_indices = self.oob_data.get_subordinate_row_indices(row_index)
+            direct_children = [
+                idx for idx in all_sub_indices
+                if self.oob_data.get_level_from_hierarchy(self.oob_data.get_row(idx)) == level + 1
+                and "SupplyWagon" not in self.oob_data.get_row(idx).get("Formation", "")
+            ]
+            sub_formations = [None, None] + [self.build_strength(idx) for idx in direct_children]
+            return ActualFormation(archetype_id=archetype_id, strength=sub_formations)
+
     def _update_placed_unit_positions(self):
         for unit_item in self.placed_units:
             scene_pos = self.world_to_scene(unit_item.world_x, unit_item.world_y)
@@ -707,7 +727,7 @@ class OOBMapWidget(QWidget):
 
     def _update_unit_count(self):
         count = len(self.placed_units)
-        self.unit_count_label.setText(f"Units: {count}/{self.max_units}")
+        self.unit_count_label.setText(f"Units: {count}")
 
     def clear_all_units(self):
         reply = QMessageBox.question(
@@ -785,28 +805,10 @@ class OOBMapWidget(QWidget):
 
             subordinate_indices = self.oob_data.get_subordinate_row_indices(parent_row_index)
 
-            def build_strength(row_index: int) -> ActualFormation:
-                sub_row = self.oob_data.get_row(row_index)
-                archetype_id = sub_row.get("Formation", "")  # TODO: switch this to use the actual input formation, currently only one loads.
-                level = self.oob_data.get_level_from_hierarchy(sub_row)
-                if level is None:
-                    raise ValueError(f"Cannot determine level for row {row_index}")
-                if level >= 6:
-                    head_count = sub_row.get("Head Count", 0)
-                    return ActualFormation(archetype_id=archetype_id, strength=int(head_count / MapUnitItem.SPRITE_SCALE))
-                else:
-                    all_sub_indices = self.oob_data.get_subordinate_row_indices(row_index)
-                    # Filter to direct children that are one level down and not supply wagons
-                    direct_children = [
-                        idx for idx in all_sub_indices
-                        if self.oob_data.get_level_from_hierarchy(self.oob_data.get_row(idx)) == level + 1 and "SupplyWagon" not in self.oob_data.get_row(idx).get("Formation", "")
-                    ]
-                    sub_formations = [None, None] + [build_strength(idx) for idx in direct_children]  # None values represent 1 and 2, which are flag bearer and commander(?) of the unit and don't need to get placed.
-                    return ActualFormation(archetype_id=archetype_id, strength=sub_formations)
-
-            parent_formation = build_strength(parent_row_index)
+            parent_formation = self.build_strength(parent_row_index)
             positions = parent_formation.get_positions()
-            plot_rectangles(positions, title=f"Formation: {formation_type}")  # Debug visualization
+            #plot_rectangles(positions, title=f"Formation: {formation_type}",
+            #                origin_offsets=(parent_formation.origin_offset_x, parent_formation.origin_offset_y))  # Debug visualization
 
             if not positions:
                 QMessageBox.information(self, "No Positions",
@@ -843,10 +845,20 @@ class OOBMapWidget(QWidget):
                 if sub_row_index is None:
                     continue
 
-                center_x = rel_x_yards + length / 2
-                center_y = rel_y_yards + depth / 2
-                rot_x = center_x * cos_a - center_y * sin_a
-                rot_y = center_x * sin_a + center_y * cos_a
+                # Use child formation's origin offset to place origin (not center)
+                if isinstance(parent_formation.strength, list) and seq - 1 < len(parent_formation.strength):
+                    child_fm = parent_formation.strength[seq - 1]
+                    if child_fm is not None and hasattr(child_fm, 'origin_offset_x'):
+                        origin_x = rel_x_yards + child_fm.origin_offset_x
+                        origin_y = rel_y_yards + child_fm.origin_offset_y
+                    else:
+                        origin_x = rel_x_yards + length / 2
+                        origin_y = rel_y_yards + depth / 2
+                else:
+                    origin_x = rel_x_yards + length / 2
+                    origin_y = rel_y_yards + depth / 2
+                rot_x = origin_x * cos_a - origin_y * sin_a
+                rot_y = origin_x * sin_a + origin_y * cos_a
                 world_x = parent_unit_item.world_x + int(rot_x * self.units_per_yard)
                 world_y = parent_unit_item.world_y + int(rot_y * self.units_per_yard)
 

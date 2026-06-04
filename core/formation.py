@@ -132,7 +132,7 @@ class ActualFormation:
                         self.subunit_dimensions[seq] = 2.5, 1.8
                     self.subunit_dimensions[seq] = subunit.get_dimensions()
                 else:
-                    self.subunit_dimensions[seq] = float(self.archetype.col_dist), float(self.archetype.row_dist)
+                    self.subunit_dimensions[seq] = float(self.archetype.col_dist.rstrip('+')), float(self.archetype.row_dist.rstrip('+'))
             except Exception:
                 raise Exception(f"Error calculating dimensions for seq {seq}: {traceback.format_exc()}")
 
@@ -199,6 +199,14 @@ class ActualFormation:
         depth = max(all_bottom) - min(all_top)
         self.length = length
         self.depth = depth
+        origin = layout.get('1')
+        if origin:
+            ox, oy = origin[0], origin[1]
+            self.origin_offset_x = ox - min(all_left)
+            self.origin_offset_y = oy - min(all_top)
+        else:
+            self.origin_offset_x = length / 2
+            self.origin_offset_y = depth / 2
         return length, depth
 
 

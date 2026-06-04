@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 from io import StringIO
 from typing import Tuple, List, Optional, Dict, Any
@@ -182,9 +183,12 @@ class OOBData:
             for i in scenario_df.index:
                 if i in placed_lookup:
                     pu = placed_lookup[i]
+                    south = -1 * math.cos(math.radians(pu["rotation"]))
+                    east = math.sin(math.radians(pu["rotation"]))
                     scenario_df.at[i, "south"] = pu["world_y"]
                     scenario_df.at[i, "east"] = pu["world_x"]
-                    scenario_df.at[i, "dirSouth"] = pu["rotation"]
+                    scenario_df.at[i, "dirSouth"] = south
+                    scenario_df.at[i, "dirEast"] = east
 
         os.makedirs(scenario_dir, exist_ok=True)
         path = os.path.join(scenario_dir, "scenario.csv")
