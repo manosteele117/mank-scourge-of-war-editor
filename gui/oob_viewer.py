@@ -78,10 +78,45 @@ def apply_dark_theme(app: QApplication) -> None:
             border: 1px solid #333333;
         }
 
+        QTabWidget::pane {
+            border: 1px solid #333333;
+            background-color: #121212;
+        }
+
+        QTabBar::tab {
+            background-color: #1f1f1f;
+            color: #ffffff;
+            padding: 6px 14px;
+            border: 1px solid #333333;
+            border-bottom: none;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+
+        QTabBar::tab:selected {
+            background-color: #2d2d2d;
+            color: #ffffff;
+        }
+
+        QTabBar::tab:!selected:hover {
+            background-color: #2a2a2a;
+        }
+
         QMenu {
             background-color: #1f1f1f;
             color: #ffffff;
             border: 1px solid #333333;
+        }
+
+        QMenu::item:selected {
+            background-color: #3a3a3a;
+            color: #ffffff;
+        }
+
+        QMenu::separator {
+            height: 1px;
+            background: #444444;
+            margin: 4px 6px;
         }
 
         QMessageBox {
@@ -154,6 +189,8 @@ class OOBViewer(QMainWindow):
             oob_data=self.data,
             map_ini=self.config.get("map-ini"),
             drills=self.config.get("drills"))
+
+        self.map_viewer.unit_selected.connect(self.on_unit_selected)
 
         self.right_tab_widget = QTabWidget()
         self.right_tab_widget.addTab(self.details, "Details")
@@ -251,6 +288,7 @@ class OOBViewer(QMainWindow):
         self.tree.select_unit(row_index)
         self.details.populate(row_index)
         self.visual.highlight_unit(row_index)
+        self.map_viewer.select_unit(row_index)
 
     def on_unit_deleted(self, num_deleted: int):
         self.visual.populate()

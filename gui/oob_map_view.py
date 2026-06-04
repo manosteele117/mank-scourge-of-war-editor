@@ -8,10 +8,10 @@ import math
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox,
     QFileDialog, QMessageBox, QSizePolicy, QGraphicsView, QGraphicsScene,
-    QGraphicsItem, QGraphicsEllipseItem, QMenu,
+    QGraphicsItem, QMenu,
 )
 from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor, QPainterPath, QPolygonF, QWheelEvent
-from PySide6.QtCore import Qt, QPointF, QRectF, Signal, QTimer
+from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PIL import Image
 
 from core.utilities import get_tga_dimensions, plot_rectangles
@@ -215,7 +215,7 @@ class MapUnitItem(QGraphicsItem):
 
     DEFAULT_RECT_WIDTH = 2000 # if its a square, something is messed up
     DEFAULT_RECT_HEIGHT = 2000
-    TRI_SIZE = 500
+    TRI_SIZE = 1000
     SPRITE_SCALE = 6 # usually 1:6 as far as I know. TODO: Expose in gui
 
     def __init__(self, name: str, unit_row_index: int, side: int, level: int,
@@ -232,6 +232,7 @@ class MapUnitItem(QGraphicsItem):
         self.head_count = head_count
         self.map_widget = map_widget
         self.is_hovered = False
+        self.is_highlighted = False
 
         self._scene_polygon: Optional[QPolygonF] = None
         self._label: str = ""
@@ -241,20 +242,8 @@ class MapUnitItem(QGraphicsItem):
         self.world_height = self.DEFAULT_RECT_HEIGHT
         self.origin_offset_x = self.DEFAULT_RECT_WIDTH / 2
         self.origin_offset_y = self.DEFAULT_RECT_HEIGHT / 2
-        if self.formation and self.formation in FormationArchetype.formations:
-            try:
-                if self.map_widget and self.map_widget.oob_data:
-                    af = self.map_widget.build_strength(self.unit_row_index)
-                else:
-                    af = ActualFormation(archetype_id=self.formation, strength=int(self.head_count / self.SPRITE_SCALE))
-                length_yards, depth_yards = af.get_dimensions()
-                upy = self.map_widget.units_per_yard if self.map_widget else 30
-                self.world_width = length_yards * upy
-                self.world_height = depth_yards * upy
-                self.origin_offset_x = af.origin_offset_x * upy
-                self.origin_offset_y = af.origin_offset_y * upy
-            except Exception:
-                pass  # fall back to defaults
+
+        self.setData(Qt.UserRole, unit_row_index)
 
         self.setData(Qt.UserRole, unit_row_index)
         self.setAcceptHoverEvents(True)
@@ -267,6 +256,24 @@ class MapUnitItem(QGraphicsItem):
     def set_label(self, label: str):
         self._label = label
         self.update()
+
+    def refresh_dimensions(self, archetype_id: str = None):
+        formation_id = archetype_id if archetype_id is not None else self.formation
+        if not formation_id or formation_id not in FormationArchetype.formations:
+            return
+        try:
+            if self.map_widget and self.map_widget.oob_data:
+                af = self.map_widget.build_strength(self.unit_row_index, archetype_id=formation_id)
+            else:
+                af = ActualFormation(archetype_id=formation_id, strength=int(self.head_count / self.SPRITE_SCALE))
+            length_yards, depth_yards = af.get_dimensions()
+            upy = self.map_widget.units_per_yard if self.map_widget else 30
+            self.world_width = length_yards * upy
+            self.world_height = depth_yards * upy
+            self.origin_offset_x = af.origin_offset_x * upy
+            self.origin_offset_y = af.origin_offset_y * upy
+        except Exception:
+            pass
 
     def _rebuild_scene_geometry(self):
         if self.map_widget is None:
@@ -326,14 +333,18 @@ class MapUnitItem(QGraphicsItem):
         if self.isSelected():
             side_color = side_color.lighter(170)
             border_color = QColor("#ffff00")
-            border_width = 0.025
+            border_width = 0.25
         elif self.is_hovered:
-            side_color = side_color.lighter(135)
-            border_color = QColor("#64b5f6")
+            side_color = side_color.lighter(120)
+            border_color = QColor("#ffffff")
+            border_width = 0.02
+        elif self.is_highlighted:
+            side_color = side_color.lighter(170)
+            border_color = QColor("#ffffff")
             border_width = 0.02
         else:
             border_color = QColor("#ffffff")
-            border_width = 0.015
+            border_width = 0.02
 
         painter.setPen(QPen(border_color, border_width))
         painter.setBrush(QBrush(side_color))
@@ -353,6 +364,10 @@ class MapUnitItem(QGraphicsItem):
         self.is_hovered = False
         self.update()
 
+    def set_highlighted(self, highlighted: bool):
+        self.is_highlighted = highlighted
+        self.update()
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged and self.map_widget is not None:
             self.world_x, self.world_y = self.map_widget.scene_to_world(value.x(), value.y())
@@ -364,6 +379,7 @@ class OOBMapWidget(QWidget):
     """Widget for displaying map information and minimap visualization."""
 
     unit_placed = Signal(int, int, int)
+    unit_selected = Signal(int)
 
     def __init__(self, oob_data=None, parent=None, map_ini: str = "", drills: str = ""):
         super().__init__(parent)
@@ -447,6 +463,9 @@ class OOBMapWidget(QWidget):
         self.info_label = QLabel("No map loaded")
         main_layout.addWidget(self.info_label, 0)
 
+        self.drills_label = QLabel("No drills file loaded")
+        main_layout.addWidget(self.drills_label, 0)
+
         self.minimap_scene = QGraphicsScene()
         self.minimap_view = OOBMapGraphicsView(self.minimap_scene, self)
         self.minimap_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -470,6 +489,23 @@ class OOBMapWidget(QWidget):
         coord_widget = QWidget()
         coord_widget.setLayout(coord_layout)
         main_layout.addWidget(coord_widget, 0)
+
+        name_layout = QHBoxLayout()
+        name_layout.setContentsMargins(0, 0, 0, 0)
+        self.name_label = QLabel("Selected: --")
+        name_label_font = QFont()
+        name_label_font.setPointSize(10)
+        name_label_font.setBold(True)
+        self.name_label.setFont(name_label_font)
+        self.name_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        name_layout.addStretch()
+        name_layout.addWidget(self.name_label)
+
+        name_widget = QWidget()
+        name_widget.setLayout(name_layout)
+        main_layout.addWidget(name_widget, 0)
+
+        self.minimap_scene.selectionChanged.connect(self._on_scene_selection_changed)
 
         self.setLayout(main_layout)
 
@@ -496,8 +532,7 @@ class OOBMapWidget(QWidget):
         try:
             from core.formation import populate_formation_archetypes_from_csv
             populate_formation_archetypes_from_csv(csv_path)
-            QMessageBox.information(self, "Formations Loaded",
-                                    f"Formation archetypes loaded from:\n{csv_path}")
+            self.drills_label.setText(f"Drills: {csv_path}")
         except Exception as e:
             QMessageBox.critical(self, "Formations Load Error",
                                  f"Failed to load formations:\n{str(e)}")
@@ -701,10 +736,12 @@ class OOBMapWidget(QWidget):
         self._update_unit_count()
         self.unit_placed.emit(row_index, world_x, world_y)
 
-    def build_strength(self, row_index: int) -> ActualFormation:
+    def build_strength(self, row_index: int, archetype_id: str = None) -> ActualFormation:
         sub_row = self.oob_data.get_row(row_index)
-        archetype_id = sub_row.get("Formation", "")
         level = self.oob_data.get_level_from_hierarchy(sub_row)
+        if archetype_id is None and level != 6:
+            print("Warning: No archetype_id provided to build_strength, defaulting to listed value in OOB data.")
+            archetype_id = sub_row.get("Formation", "")
         if level is None:
             raise ValueError(f"Cannot determine level for row {row_index}")
         if level >= 6:
@@ -717,7 +754,11 @@ class OOBMapWidget(QWidget):
                 if self.oob_data.get_level_from_hierarchy(self.oob_data.get_row(idx)) == level + 1
                 and "SupplyWagon" not in self.oob_data.get_row(idx).get("Formation", "")
             ]
-            sub_formations = [None, None] + [self.build_strength(idx) for idx in direct_children]
+            child_formation = FormationArchetype.formations.get(archetype_id).sub_form
+            if level < 3: # Hack to allow lvl3 formations to be used on lvl1 or lvl2 units.
+                child_formation = archetype_id
+            #child_artillery_formation = None
+            sub_formations = [None, None] + [self.build_strength(idx, archetype_id=child_formation) for idx in direct_children]
             return ActualFormation(archetype_id=archetype_id, strength=sub_formations)
 
     def _update_placed_unit_positions(self):
@@ -728,6 +769,47 @@ class OOBMapWidget(QWidget):
     def _update_unit_count(self):
         count = len(self.placed_units)
         self.unit_count_label.setText(f"Units: {count}")
+
+    def _on_scene_selection_changed(self):
+        items = self.minimap_scene.selectedItems()
+        map_items = [i for i in items if isinstance(i, MapUnitItem)]
+        if not map_items:
+            self.name_label.setText("Selected: --")
+            self.highlight_unit(None)
+            return
+        if len(map_items) == 1:
+            unit = map_items[0]
+            formation_text = f" | Formation: {unit.formation}" if unit.formation else " | Formation: (none)"
+            self.name_label.setText(f"Selected: {unit.name}{formation_text}")
+            self.highlight_unit(unit.unit_row_index)
+            self.unit_selected.emit(unit.unit_row_index)
+            return
+        self.name_label.setText(f"Selected: {len(map_items)} units")
+        self.highlight_unit(None)
+
+    def select_unit(self, row_index: int) -> None:
+        selected_map_items = [i for i in self.minimap_scene.selectedItems() if isinstance(i, MapUnitItem)]
+        if len(selected_map_items) == 1 and selected_map_items[0].unit_row_index == row_index:
+            return
+        for placed_unit in self.placed_units:
+            if placed_unit.unit_row_index == row_index:
+                self.minimap_scene.clearSelection()
+                placed_unit.setSelected(True)
+                return
+
+    def highlight_unit(self, row_index):
+        for item in self.placed_units:
+            item.set_highlighted(False)
+        if row_index is None or self.oob_data is None:
+            return
+        try:
+            subordinate_indices = self.oob_data.get_subordinate_row_indices(row_index)
+        except Exception:
+            subordinate_indices = [row_index]
+        row_to_item = {item.unit_row_index: item for item in self.placed_units}
+        for idx in subordinate_indices:
+            if idx in row_to_item:
+                row_to_item[idx].set_highlighted(True)
 
     def clear_all_units(self):
         reply = QMessageBox.question(
@@ -785,13 +867,28 @@ class OOBMapWidget(QWidget):
         self.minimap_scene.clearSelection()
         unit_item.setSelected(True)
 
-        menu = QMenu(self)
-        action = menu.addAction(unit_item.formation)
-        menu.addSeparator()
-        cancel_action = menu.addAction("Cancel")
+        target_level = max(unit_item.level, 3)
+        available = [a for a in FormationArchetype.formations.values()
+                     if f"DRIL_Lvl{target_level}" in a.drill_id]
+        available.sort(key=lambda a: a.name)
 
-        action.triggered.connect(
-            lambda: self.apply_formation(unit_item, unit_item.formation))
+        current_arch = next((a for a in available if a.drill_id == unit_item.formation), None)
+        others = [a for a in available if a.drill_id != unit_item.formation]
+
+        menu = QMenu(self)
+        if current_arch is not None:
+            default_action = menu.addAction(f"{current_arch.drill_id} (default)")
+            default_action.triggered.connect(
+                lambda _checked=False, did=current_arch.drill_id: self.apply_formation(unit_item, did))
+            menu.addSeparator()
+        for arch in others:
+            action = menu.addAction(arch.drill_id)
+            action.triggered.connect(
+                lambda _checked=False, did=arch.drill_id: self.apply_formation(unit_item, did))
+        if not available:
+            menu.addAction("(no formations available)").setEnabled(False)
+        menu.addSeparator()
+        menu.addAction("Cancel")
 
         menu.exec(global_pos)
 
@@ -805,10 +902,21 @@ class OOBMapWidget(QWidget):
 
             subordinate_indices = self.oob_data.get_subordinate_row_indices(parent_row_index)
 
-            parent_formation = self.build_strength(parent_row_index)
+            parent_formation = self.build_strength(parent_row_index, archetype_id=formation_type)
             positions = parent_formation.get_positions()
             #plot_rectangles(positions, title=f"Formation: {formation_type}",
             #                origin_offsets=(parent_formation.origin_offset_x, parent_formation.origin_offset_y))  # Debug visualization
+
+            parent_unit_item.formation = formation_type
+            parent_unit_item.refresh_dimensions(archetype_id=formation_type)
+            parent_unit_item._rebuild_scene_geometry()
+
+            parent_archetype = FormationArchetype.formations.get(formation_type)
+            parent_level = self.oob_data.get_level_from_hierarchy(parent_row)
+            if parent_level is not None and parent_level < 3: # Hack to allow lvl3 formations to be used on lvl1 or lvl2 units.
+                child_formation_type = formation_type
+            else:
+                child_formation_type = parent_archetype.sub_form if parent_archetype and parent_archetype.sub_form else None
 
             if not positions:
                 QMessageBox.information(self, "No Positions",
@@ -874,21 +982,23 @@ class OOBMapWidget(QWidget):
                     unit_item.setRotation(parent_unit_item.rotation())
                     scene_pos = self.world_to_scene(world_x, world_y)
                     unit_item.setPos(scene_pos)
+                    if child_formation_type:
+                        unit_item.formation = child_formation_type
+                    unit_item.refresh_dimensions()
                     unit_item._rebuild_scene_geometry()
                     units_to_select.append(unit_item)
 
                     sub_level = self.oob_data.get_level_from_hierarchy(sub_row)
-                    if sub_level is not None and sub_level < 6:
-                        self.apply_formation(unit_item, formation_type)
+                    if sub_level is not None and sub_level < 6 and child_formation_type:
+                        self.apply_formation(unit_item, child_formation_type)
                 else:
                     unit_data = {
                         "name": sub_row.get("NAME1", f"Unit {sub_row_index}"),
                         "side": int(sub_row.get("SIDE 1", 1)),
                         "level": self.oob_data.get_level_from_hierarchy(sub_row),
-                        "formation": sub_row.get("Formation", ""),
+                        "formation": child_formation_type or sub_row.get("Formation", ""),
                         "head_count": int(sub_row.get("Head Count", 0) or 0),
                     }
-                    print(unit_data)
                     self._place_unit(sub_row_index, world_x, world_y, unit_data)
                     for placed_unit in self.placed_units:
                         if placed_unit.unit_row_index == sub_row_index:
@@ -898,8 +1008,8 @@ class OOBMapWidget(QWidget):
                             break
 
                     sub_level = self.oob_data.get_level_from_hierarchy(sub_row)
-                    if sub_level is not None and sub_level < 6:
-                        self.apply_formation(unit_item, formation_type)
+                    if sub_level is not None and sub_level < 6 and child_formation_type:
+                        self.apply_formation(unit_item, child_formation_type)
 
             for unit in units_to_select:
                 unit.setSelected(True)
@@ -921,15 +1031,11 @@ class OOBMapWidget(QWidget):
         if unit_item is None:
             return
 
-        scene_pos = self.world_to_scene(unit_item.world_x, unit_item.world_y)
-
         zoom_rect = self._compute_zoom_bounds(unit_item)
         if zoom_rect is not None:
             self.minimap_view.fitInView(zoom_rect, Qt.AspectRatioMode.KeepAspectRatio)
             self.minimap_view.centerOn(zoom_rect.center())
             self.minimap_view.zoom_level = self.minimap_view.transform().m11()
-
-        self._ping_position(scene_pos)
 
     def _compute_zoom_bounds(self, unit_item: 'MapUnitItem') -> Optional[QRectF]:
         BUFFER = 5000
@@ -967,68 +1073,6 @@ class OOBMapWidget(QWidget):
         p2 = self.world_to_scene(int(max_x), int(max_y))
 
         return QRectF(p1, p2).normalized()
-
-    def _ping_position(self, scene_pos: QPointF):
-        existing = [
-            item for item in self.minimap_scene.items()
-            if isinstance(item, QGraphicsEllipseItem) and item.data(0) == "ping"
-        ]
-        for item in existing:
-            self.minimap_scene.removeItem(item)
-
-        ping_item = QGraphicsEllipseItem(QRectF(-3, -3, 6, 6))
-        self.minimap_scene.addItem(ping_item)
-        ping_item.setPos(scene_pos)
-        ping_item.setPen(QPen(QColor(255, 255, 255, 200), 3))
-        ping_item.setBrush(QBrush(QColor(255, 255, 255, 60)))
-        ping_item.setData(0, "ping")
-        ping_item.setZValue(100)
-
-        outer_ping = QGraphicsEllipseItem(QRectF(-60, -60, 120, 120))
-        self.minimap_scene.addItem(outer_ping)
-        outer_ping.setPos(scene_pos)
-        outer_ping.setPen(QPen(QColor(200, 230, 255, 150), 2))
-        outer_ping.setBrush(QBrush(QColor(200, 230, 255, 30)))
-        outer_ping.setData(0, "ping")
-        outer_ping.setZValue(99)
-
-        timer = QTimer()
-        timer.setInterval(50)
-        timer.setSingleShot(False)
-
-        radius = 3.0
-        opacity = 0.8
-        outer_radius = 60.0
-        outer_opacity = 0.6
-
-        def animate():
-            nonlocal radius, opacity, outer_radius, outer_opacity
-            radius += 1.5
-            opacity -= 0.025
-            outer_radius += 1.0
-            outer_opacity -= 0.015
-
-            if opacity <= 0:
-                opacity = 0
-            if outer_opacity <= 0:
-                outer_opacity = 0
-
-            ping_item.setRect(-radius, -radius, radius * 2, radius * 2)
-            ping_item.setPen(QPen(QColor(255, 255, 255, int(opacity * 255)), 3))
-            ping_item.setBrush(QBrush(QColor(255, 255, 255, int(opacity * 60))))
-
-            outer_ping.setRect(-outer_radius, -outer_radius, outer_radius * 2, outer_radius * 2)
-            outer_ping.setPen(QPen(QColor(200, 230, 255, int(outer_opacity * 255)), 2))
-            outer_ping.setBrush(QBrush(QColor(200, 230, 255, int(outer_opacity * 30))))
-
-            if opacity <= 0 or outer_opacity <= 0:
-                self.minimap_scene.removeItem(ping_item)
-                self.minimap_scene.removeItem(outer_ping)
-                timer.stop()
-                timer.deleteLater()
-
-        timer.timeout.connect(animate)
-        timer.start()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

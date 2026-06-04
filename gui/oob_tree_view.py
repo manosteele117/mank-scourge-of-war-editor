@@ -74,7 +74,6 @@ class OOBTreeWidget(QTreeWidget):
                     image: url(icons/branch-open.png);
             }""")
 
-        self.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
         self.setDragEnabled(True)
@@ -116,6 +115,7 @@ class OOBTreeWidget(QTreeWidget):
                 str(data['avg_experience']), str(data['line_num']),
             ])
             item.setData(0, Qt.UserRole, data['idx'])
+            item.setTextAlignment(2, Qt.AlignRight | Qt.AlignVCenter)
             self.apply_side_colors(item, data['side'])
 
             parent_key = self.data.get_parent_key(data['hierarchy_key'])
@@ -131,6 +131,8 @@ class OOBTreeWidget(QTreeWidget):
             self.calculate_average_experience(item)
 
         self.expandToDepth(2)
+        for col in range(self.columnCount()):
+            self.resizeColumnToContents(col)
 
     def drawRow(self, painter, option, index):
         item = self.itemFromIndex(index)
@@ -261,7 +263,7 @@ class OOBTreeWidget(QTreeWidget):
                         "name": str(row.get("NAME1", f"Unit {row_index}")),
                         "side": int(row.get("SIDE 1", 1) or 1),
                         "level": int(self.data.get_level_from_hierarchy(row) or 1),
-                        "formation": str(row.get("Formation", "")),
+                        "formation": "",
                         "head_count": int(row.get("Head Count", 0) or 0),
                     }
 
