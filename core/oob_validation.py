@@ -1,6 +1,12 @@
+import numpy as np
 import pandas as pd
 from typing import List
 from core.oob_model import OOBData
+
+
+MANEUVER_STATS = ("Fatigue", "Morale", "Close", "Open", "Edged", "Firearm",
+                  "Marksmanship", "Horsemanship", "Surgeon", "Calisthenics")
+COMMAND_STATS = ("Ability", "Command", "Control", "Leadership", "Style")
 
 
 class OOBValidator:
@@ -8,67 +14,82 @@ class OOBValidator:
 
     def __init__(self, data: OOBData):
         self.data = data
+        # Resolve the actual columns that exist in the dataframe once.
+        self._maneuver_cols: List[str] = []
+        self._command_cols: List[str] = []
+        self._refresh_columns()
+
+    def _refresh_columns(self) -> None:
+        if self.data.df is None:
+            return
+        df_cols = set(self.data.df.columns)
+        self._maneuver_cols = [c for c in MANEUVER_STATS if c in df_cols]
+        self._command_cols = [c for c in COMMAND_STATS if c in df_cols]
 
     def check_unit_stats_conflict(self) -> List[str]:
-        if self.data.df is None:
+        if self.data.df is None or not (self._maneuver_cols or self._command_cols):
             return []
-
-        maneuver_stats = ["Fatigue", "Morale", "Close", "Open", "Edged", "Firearm",
-                          "Marksmanship", "Horsemanship", "Surgeon", "Calisthenics"]
-        command_stats = ["Ability", "Command", "Control", "Leadership", "Style"]
-
-        maneuver_cols = [col for col in maneuver_stats if col in self.data.df.columns]
-        command_cols = [col for col in command_stats if col in self.data.df.columns]
-
-        errors = []
-        for idx, row in self.data.df.iterrows():
-            has_some_maneuver = any(pd.notna(row.get(col)) for col in maneuver_cols)
-            has_some_command = any(pd.notna(row.get(col)) for col in command_cols)
-            has_all_maneuver = all(pd.notna(row.get(col)) for col in maneuver_cols)
-            has_all_command = all(pd.notna(row.get(col)) for col in command_cols)
-
-            if (has_some_maneuver and has_some_command) or not (has_all_maneuver or has_all_command or
-                                                                  (str(row.get("Formation", "")) == "DRIL_SupplyWagon")):
-                unit_name = str(row.get("NAME1", "Unknown"))
-                line_num = int(row.get("line_number", idx + 2))
-                errors.append(
-                    f"Line {line_num}: '{unit_name}' has both maneuver and command stats.\n"
-                    f"Maneuver stats present: {has_some_maneuver}, Command stats present: {has_some_command}.\n"
-                    f"Maneuver stats complete: {has_all_maneuver}, Command stats complete: {has_all_command}.\n"
-                    f"Units should have either maneuver stats (Fatigue, Morale, Close, Open, Edged, Firearm, "
-                    f"Marksmanship, Horsemanship, Surgeon, Calisthenics) or command stats (Ability, Command, "
-                    f"Control, Leadership, Style), but not both."
-                )
-        return errors
+        if not (self._maneuver_cols and self._command_cols):
+            return []
+        df = self.data.df
+        man = df[self._maneuver_cols]
+        cmd = df[self._command_cols]
+        man_notna = man.notna()
+        cmd_notna = cmd.notna()
+        has_some_man = man_notna.any(axis=1)
+        has_some_cmd = cmd_notna.any(axis=1)
+        has_all_man = man_notna.all(axis=1)
+        has_all_cmd = cmd_notna.all(axis=1)
+        is_supply = df.get("Formation", pd.Series(dtype=object)).fillna("") == "DRIL_SupplyWagon"
+        bad = (has_some_man & has_some_cmd) | ~(has_all_man | has_all_cmd | is_supply)
+        if not bad.any():
+            return []
+        bad_idx = df.index[bad]
+        names = df.loc[bad_idx, "NAME1"].fillna("Unknown").astype(str)
+        line_nums = df.loc[bad_idx, "line_number"].astype(int)
+        return [
+            f"Line {int(ln)}: '{nm}' has both maneuver and command stats.\n"
+            f"Units should have either maneuver stats (Fatigue, Morale, Close, Open, Edged, Firearm, "
+            f"Marksmanship, Horsemanship, Surgeon, Calisthenics) or command stats (Ability, Command, "
+            f"Control, Leadership, Style), but not both."
+            for ln, nm in zip(line_nums.tolist(), names.tolist())
+        ]
 
     def check_hierarchy_conflicts(self) -> List[str]:
         if self.data.df is None:
             return []
-
-        errors = []
-        for idx, row in self.data.df.iterrows():
-            level = self.data.get_level_from_hierarchy(row)
-            expected_level = max(3, level) if level else None
-            if level is None:
-                continue
-
-            formation = str(row.get("Formation", ""))
-            unit_name = str(row.get("NAME1", "Unknown"))
-            line_num = int(row.get("line_number", idx + 2))
-
-            if formation == "DRIL_SupplyWagon":
-                continue
-
-            expected_formation_str = f"Lvl{expected_level}"
-            if expected_formation_str not in formation:
-                errors.append(
-                    f"Line {line_num}: '{unit_name}' is level {level} but Formation doesn't contain "
-                    f"'{expected_formation_str}'. Formation listed: {formation}"
-                )
-        return errors
+        df = self.data.df
+        self.data._ensure_built()
+        level_arr = self.data._level_by_row
+        if level_arr is None or len(level_arr) == 0:
+            return []
+        expected_level = np.maximum(level_arr, 3)
+        expected_str = np.char.mod("Lvl%d", expected_level)
+        formation = df["Formation"].fillna("").to_numpy(dtype=object)
+        names = df["NAME1"].fillna("Unknown").astype(str).to_numpy()
+        line_nums = df["line_number"].to_numpy()
+        bad = (level_arr > 0) & ~np.array([s in str(f) for s, f in zip(expected_str, formation)])
+        if not bad.any():
+            return []
+        supply_mask = (formation == "DRIL_SupplyWagon")
+        bad = bad & ~supply_mask
+        if not bad.any():
+            return []
+        return [
+            f"Line {int(ln)}: '{nm}' is level {int(lvl)} but Formation doesn't contain "
+            f"'Lvl{int(el)}'. Formation listed: {str(fm)}"
+            for ln, nm, lvl, el, fm in zip(
+                line_nums[bad].tolist(),
+                names[bad].tolist(),
+                level_arr[bad].tolist(),
+                expected_level[bad].tolist(),
+                formation[bad].tolist(),
+            )
+        ]
 
     def validate_unit_stats(self) -> List[str]:
-        warnings = []
+        self._refresh_columns()
+        warnings: List[str] = []
         warnings.extend(self.check_unit_stats_conflict())
         warnings.extend(self.check_hierarchy_conflicts())
         return warnings

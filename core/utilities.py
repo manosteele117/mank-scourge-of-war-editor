@@ -1,6 +1,4 @@
 import re
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 
 
 def get_tga_dimensions(filepath):
@@ -34,6 +32,9 @@ def plot_rectangles(rectangles: dict, title: str = "Rectangles", figsize: tuple 
     """Plot rectangles from origin offsets. Input: (left_x, top_y, length, depth).
     origin_offsets: (ox, oy) distance from top-left of bounding box to origin.
     Draws bounding box with origin at correct offset, individual unit rects, and origin dot."""
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
     fig, ax = plt.subplots(figsize=figsize)
 
     if not rectangles:

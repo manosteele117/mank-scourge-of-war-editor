@@ -70,6 +70,9 @@ COLOR_BORDER_HIGHLIGHTED = QColor("#ffffff")
 TREE_SIDE_1_BG = "#2c2c40"
 TREE_SIDE_2_BG = "#402c2c"
 
+# ── Game design constants ─────────────────────────────────────────
+SPRITE_SCALE: int = 6  # Head Count / SPRITE_SCALE = number of subunit sprites in a level-6 unit
+
 
 def get_border_color(is_selected: bool, is_hovered: bool, is_highlighted: bool) -> QColor:
     """Return the border color based on selection/hover/highlight state."""
@@ -80,3 +83,16 @@ def get_border_color(is_selected: bool, is_hovered: bool, is_highlighted: bool) 
     elif is_highlighted:
         return COLOR_BORDER_HIGHLIGHTED
     return COLOR_BORDER_NORMAL
+
+
+def get_side_color(side: int, is_selected: bool = False, is_hovered: bool = False,
+                   is_highlighted: bool = False) -> QColor:
+    """Return the side (fill) color, brightened by interaction state."""
+    base = COLOR_SIDE_1 if side == 1 else COLOR_SIDE_2
+    if is_selected:
+        return base.lighter(170 if is_highlighted else 150)
+    if is_hovered:
+        return base.lighter(120)
+    if is_highlighted:
+        return base.lighter(130)
+    return base

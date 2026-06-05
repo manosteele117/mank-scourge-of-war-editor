@@ -1,5 +1,4 @@
 from typing import List, Self
-from collections import defaultdict
 import traceback
 import re
 
@@ -275,33 +274,8 @@ def populate_formation_archetypes_from_csv(file_path):
         else:
             print(f"Unrecognized formation type in block starting with: {block_lines[0]}")
 
-    for block in lvl6_blocks:
-        try:
-            FormationArchetype(block)
-        except Exception as e:
-            print(f"Skipping block due to parsing error: {e}")
-            print(f"Block lines: {block}")
-    for block in lvl5_blocks:
-        try:
-            FormationArchetype(block)
-        except Exception as e:
-            print(f"Skipping block due to parsing error: {e}")
-            print(f"Block lines: {block}")
-    for block in lvl4_blocks:
-        try:
-            FormationArchetype(block)
-        except Exception as e:
-            traceback.print_exc()
-            print(f"Skipping block due to parsing error: {e}")
-            print(f"Block lines: {block}")
-    for block in lvl3_blocks:
-        try:
-            FormationArchetype(block)
-        except Exception as e:
-            traceback.print_exc()
-            print(f"Skipping block due to parsing error: {e}")
-            print(f"Block lines: {block}")
-    for block in lvl2_blocks:
+
+    for block in lvl6_blocks + lvl5_blocks + lvl4_blocks + lvl3_blocks + lvl2_blocks + misc_blocks:
         try:
             FormationArchetype(block)
         except Exception as e:

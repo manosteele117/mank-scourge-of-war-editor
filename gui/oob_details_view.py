@@ -53,19 +53,18 @@ class OOBDetailsWidget(QWidget):
 
         self.current_row_index = row_index
         row = self.data.df.iloc[row_index]
+        columns = list(row.index)
 
         self.details_table.blockSignals(True)
         try:
-            self.details_table.clearContents()
-            self.details_table.setRowCount(len(row.index))
-
-            for i, column in enumerate(row.index):
+            self.details_table.setRowCount(len(columns))
+            for i, column in enumerate(columns):
                 field_item = QTableWidgetItem(str(column))
-                value_item = QTableWidgetItem(str(row[column]))
                 field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)
                 self.details_table.setItem(i, 0, field_item)
-                self.details_table.setItem(i, 1, value_item)
 
+                value_item = QTableWidgetItem(str(row[column]))
+                self.details_table.setItem(i, 1, value_item)
             self.details_table.resizeRowsToContents()
             self.details_table.resizeColumnToContents(0)
         finally:

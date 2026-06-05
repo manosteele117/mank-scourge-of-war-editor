@@ -1,13 +1,16 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QGraphicsView, QGraphicsScene, QGraphicsLineItem
 from PySide6.QtCore import Qt, Signal, QRectF, QLineF
-from PySide6.QtGui import QWheelEvent, QPainter, QPen, QColor
+from PySide6.QtGui import QPainter, QPen, QColor
 from core.oob_model import OOBData
 from gui.oob_visual_shapes import get_shape_class_for_level, UnitGraphicsItem
 from gui.oob_visual_layout import HierarchicalLayout
+from gui.zoomable_view import ZoomableGraphicsView
 
 
 class OOBVisualWidget(QWidget):
     """Widget for visual representation of Order of Battle formations."""
+
+    LAYOUT_PADDING = 2000
 
     unit_selected = Signal(int)
 
@@ -38,6 +41,7 @@ class OOBVisualWidget(QWidget):
         self.setLayout(layout)
 
         self.items_by_row_index = {}
+        self._highlighted: set = set()
 
     def populate(self, row_index: int = None) -> None:
         self.scene.clear()
@@ -50,7 +54,7 @@ class OOBVisualWidget(QWidget):
 
         for unit_row_idx, (x, y) in positions.items():
             row = self.data.get_row(unit_row_idx)
-            level = self.data.get_level_from_hierarchy(row)
+            level = self.data.get_level(unit_row_idx)
             side = int(row.get("SIDE 1", 1))
             name = str(row.get("NAME1", "Unknown"))
             formation = str(row.get("Formation", ""))
@@ -72,31 +76,43 @@ class OOBVisualWidget(QWidget):
             line.setPen(pen)
             self.scene.addItem(line)
 
-        self.view.reset_view(self.scene.itemsBoundingRect())
+            padded = self.scene.itemsBoundingRect().adjusted(
+                -self.LAYOUT_PADDING, -self.LAYOUT_PADDING,
+                self.LAYOUT_PADDING, self.LAYOUT_PADDING)
+            self.scene.setSceneRect(padded)
+            self.view.reset_view(padded)
 
     def clear(self) -> None:
         self.scene.clear()
         self.items_by_row_index.clear()
+        self._highlighted.clear()
 
     def highlight_unit(self, row_index: int) -> None:
-        for item in self.items_by_row_index.values():
+        if row_index is None:
+            new_set: set = set()
+        else:
+            try:
+                subordinate_indices = self.data.get_subordinate_row_indices(row_index)
+            except (ValueError, Exception):
+                subordinate_indices = [row_index]
+            new_set = {idx for idx in subordinate_indices if idx in self.items_by_row_index}
+        # Diff: only update items whose state changed AND that still exist.
+        all_current = set(self.items_by_row_index.keys())
+        for idx in (self._highlighted - new_set) & all_current:
+            item = self.items_by_row_index[idx]
             if isinstance(item, UnitGraphicsItem):
-                item.set_selected(False)
                 item.set_highlighted(False)
-
-        try:
-            subordinate_indices = self.data.get_subordinate_row_indices(row_index)
-        except (ValueError, Exception):
-            subordinate_indices = [row_index]
-
-        for idx in subordinate_indices:
-            if idx in self.items_by_row_index:
-                item = self.items_by_row_index[idx]
-                if isinstance(item, UnitGraphicsItem):
-                    item.set_highlighted(True)
+        for idx in (new_set - self._highlighted) & all_current:
+            item = self.items_by_row_index[idx]
+            if isinstance(item, UnitGraphicsItem):
+                item.set_highlighted(True)
+        self._highlighted = new_set & all_current
 
     def _on_reset_view(self) -> None:
-        self.view.reset_view(self.scene.itemsBoundingRect())
+        rect = self.scene.itemsBoundingRect().adjusted(
+            -self.LAYOUT_PADDING, -self.LAYOUT_PADDING,
+            self.LAYOUT_PADDING, self.LAYOUT_PADDING)
+        self.view.reset_view(rect)
 
     def _on_regenerate_view(self) -> None:
         self.populate()
@@ -106,54 +122,24 @@ class OOBVisualWidget(QWidget):
         self.unit_selected.emit(unit_row_index)
 
 
-class OOBGraphicsView(QGraphicsView):
+class OOBGraphicsView(QGraphicsView, ZoomableGraphicsView):
     """Custom graphics view with zoom and selection capabilities."""
 
     unit_clicked = Signal(int)
 
-    MIN_ZOOM = 0.1
-    MAX_ZOOM = 50.0
-    ZOOM_FACTOR = 1.2
-
     def __init__(self, scene: QGraphicsScene, parent=None):
         super().__init__(scene, parent)
-        self.zoom_level = 1.0
-        self.last_mouse_pos = None
-        self.panning = False
-        self.pan_start = None
+        self.init_zoom_state()
 
-        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setStyleSheet("background-color: #2c2c2c;")
 
-    def wheelEvent(self, event: QWheelEvent) -> None:
-        angle = event.angleDelta().y()
-        factor = self.ZOOM_FACTOR if angle > 0 else 1 / self.ZOOM_FACTOR
-
-        new_zoom = self.zoom_level * factor
-        if new_zoom < self.MIN_ZOOM or new_zoom > self.MAX_ZOOM:
-            return
-
-        self.setTransformationAnchor(self.ViewportAnchor.AnchorUnderMouse)
-        self.scale(factor, factor)
-        self.zoom_level = new_zoom
-
-    def reset_view(self, rect: QRectF) -> None:
-        if rect.isNull() or not rect.isValid():
-            return
-        self.resetTransform()
-        self.zoom_level = 1.0
-        self.setTransformationAnchor(self.ViewportAnchor.AnchorUnderMouse)
-        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+    def wheelEvent(self, event):
+        ZoomableGraphicsView.wheelEvent(self, event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.RightButton:
-            self.panning = True
-            self.pan_start = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
-            event.accept()
+        if self._handle_middle_press(event):
             return
-
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.pos())
             if item and isinstance(item, UnitGraphicsItem):
@@ -161,21 +147,12 @@ class OOBGraphicsView(QGraphicsView):
 
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event) -> None:
-        if self.panning and self.pan_start is not None:
-            delta = event.pos() - self.pan_start
-            self.pan_start = event.pos()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
-            event.accept()
+    def mouseMoveEvent(self, event):
+        if self._handle_pan_move(event):
             return
         super().mouseMoveEvent(event)
 
-    def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.RightButton and self.panning:
-            self.panning = False
-            self.pan_start = None
-            self.setCursor(Qt.ArrowCursor)
-            event.accept()
+    def mouseReleaseEvent(self, event):
+        if self._handle_middle_release(event):
             return
         super().mouseReleaseEvent(event)

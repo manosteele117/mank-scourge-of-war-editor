@@ -1,39 +1,44 @@
-﻿import sys
+﻿import argparse
+import sys
+from pathlib import Path
+
 sys.path.insert(0, '.')
-from core.formation import populate_formation_archetypes_from_csv, ActualFormation
+from core.formation import populate_formation_archetypes_from_csv
 from core.oob_model import OOBData
 from core.utilities import plot_rectangles
 
-populate_formation_archetypes_from_csv('C:\\Steam\\steamapps\\common\\Scourge Of War - Remastered\\Base\\Logistics\\drills.csv')
+
+DEFAULT_BASE_DIR = Path('C:/Steam/steamapps/common/Scourge Of War - Remastered/Base')
+DEFAULT_DRILLS_CSV = DEFAULT_BASE_DIR / 'Logistics' / 'drills.csv'
+DEFAULT_OOB_CSV = DEFAULT_BASE_DIR / 'OOBs' / 'OOB_SB_test_4corps.csv'
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Smoke-test formation layouts on an OOB CSV.")
+    p.add_argument('--drills', type=Path, default=DEFAULT_DRILLS_CSV,
+                   help='Path to drills.csv (formation archetypes).')
+    p.add_argument('--oob', type=Path, default=DEFAULT_OOB_CSV,
+                   help='Path to the OOB CSV to load.')
+    return p.parse_args()
+
+
+args = parse_args()
+
+populate_formation_archetypes_from_csv(str(args.drills))
 
 oob = OOBData()
-oob.load_csv('C:\\Steam\\steamapps\\common\\Scourge Of War - Remastered\\Base\\OOBs\\OOB_SB_test_4corps.csv')
+oob.load_csv(str(args.oob))
 
 
-def build_strength(row_index: int) -> ActualFormation:
-    sub_row = oob.get_row(row_index)
-    archetype_id = sub_row.get("Formation", "")
-    level = oob.get_level_from_hierarchy(sub_row)
-    if level is None:
-        raise ValueError(f"Cannot determine level for row {row_index}")
-    if level >= 6:
-        head_count = sub_row.get("Head Count", 0)
-        return ActualFormation(archetype_id=archetype_id, strength=int(float(head_count / 6)))
-    else:
-        all_sub_indices = oob.get_subordinate_row_indices(row_index)
-        direct_children = [
-            idx for idx in all_sub_indices
-            if oob.get_level_from_hierarchy(oob.get_row(idx)) == level + 1
-            and "SupplyWagon" not in oob.get_row(idx).get("Formation", "")
-        ]
-        sub_formations = [None, None] + [build_strength(idx) for idx in direct_children]
-        return ActualFormation(archetype_id=archetype_id, strength=sub_formations)
+def build_strength(row_index: int):
+    return oob.build_strength(row_index)
 
 
 def find_unit_row(oob, name_fragment):
-    for idx, row in oob.df.iterrows():
-        if name_fragment in str(row.get('NAME1', '')):
-            return idx, str(row.get('NAME1', ''))
+    for idx in range(len(oob.df)):
+        info = oob.unit_info(idx)
+        if name_fragment in info.name:
+            return idx, info.name
     return None, None
 
 

@@ -4,9 +4,7 @@ from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QTextDocument, 
 import math
 
 from constants import (
-    COLOR_SIDE_1, COLOR_SIDE_2,
-    COLOR_BORDER_NORMAL, COLOR_BORDER_SELECTED, COLOR_BORDER_HOVER, COLOR_BORDER_HIGHLIGHTED,
-    get_border_color,
+    get_border_color, get_side_color,
 )
 
 
@@ -24,22 +22,9 @@ def draw_star(painter: QPainter, center: QPointF, size: float, color: QColor, bo
     painter.drawPolygon(points)
 
 
-def _draw_text_label(painter: QPainter, rect, name: str, font: QFont, color: QColor,
+def _draw_text_label(painter: QPainter, doc: QTextDocument, rect, color: QColor,
                      center_vertically: bool = False):
-    """Shared text drawing logic using QTextDocument for word wrapping."""
-    painter.setFont(font)
     painter.setPen(QPen(color))
-
-    doc = QTextDocument()
-    doc.setPlainText(name)
-    doc.setDefaultFont(font)
-
-    text_option = QTextOption()
-    text_option.setWrapMode(QTextOption.WordWrap)
-    text_option.setAlignment(Qt.AlignCenter)
-    doc.setDefaultTextOption(text_option)
-
-    doc.setTextWidth(rect.width() - 4)
 
     painter.save()
     text_height = doc.size().height()
@@ -78,15 +63,23 @@ class UnitGraphicsItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setPos(0, 0)
 
+        rect = self.boundingRect()
+        self._text_doc = QTextDocument()
+        self._text_doc.setPlainText(self.name)
+        self._text_doc.setDefaultFont(QFont("Arial", 12))
+        text_option = QTextOption()
+        text_option.setWrapMode(QTextOption.WordWrap)
+        text_option.setAlignment(Qt.AlignCenter)
+        self._text_doc.setDefaultTextOption(text_option)
+        self._text_doc.setTextWidth(rect.width() - 4)
+
     def get_side_color(self) -> QColor:
-        base_color = COLOR_SIDE_1 if self.side == 1 else COLOR_SIDE_2
-        if self.is_selected:
-            return base_color.lighter(150)
-        elif self.is_hovered:
-            return base_color.lighter(120)
-        elif self.is_highlighted:
-            return base_color.lighter(130)
-        return base_color
+        return get_side_color(
+            self.side,
+            is_selected=self.is_selected,
+            is_hovered=self.is_hovered,
+            is_highlighted=self.is_highlighted,
+        )
 
     def get_border_color(self) -> QColor:
         return get_border_color(self.is_selected, self.is_hovered, self.is_highlighted)
@@ -99,8 +92,8 @@ class UnitGraphicsItem(QGraphicsItem):
         raise NotImplementedError("Subclasses must implement draw_shape")
 
     def draw_text(self, painter: QPainter):
-        _draw_text_label(painter, self.boundingRect(), self.name,
-                         QFont("Arial", 12), self.COLOR_TEXT, center_vertically=False)
+        _draw_text_label(painter, self._text_doc, self.boundingRect(),
+                         self.COLOR_TEXT, center_vertically=False)
 
     def _draw_stars(self, painter: QPainter, n: int):
         center = QPointF(0, 0)
@@ -175,8 +168,8 @@ class RectangleItem(UnitGraphicsItem):
         painter.drawRect(rect)
 
     def draw_text(self, painter: QPainter):
-        _draw_text_label(painter, self.boundingRect(), self.name,
-                         QFont("Arial", 12), self.COLOR_TEXT, center_vertically=True)
+        _draw_text_label(painter, self._text_doc, self.boundingRect(),
+                         self.COLOR_TEXT, center_vertically=True)
 
 
 class ArtilleryItem(UnitGraphicsItem):
@@ -245,8 +238,8 @@ class WagonItem(UnitGraphicsItem):
             painter.drawRect(wheel)
 
     def draw_text(self, painter: QPainter):
-        _draw_text_label(painter, self.boundingRect(), self.name,
-                         QFont("Arial", 12), self.COLOR_TEXT, center_vertically=True)
+        _draw_text_label(painter, self._text_doc, self.boundingRect(),
+                         self.COLOR_TEXT, center_vertically=True)
 
 
 def get_shape_class_for_level(level: int, formation: str = ""):

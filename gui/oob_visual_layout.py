@@ -64,31 +64,18 @@ class HierarchicalLayout:
         return self.positions
 
     def _build_parent_child_index(self):
+        """Mirror OOBData's adjacency index into local cache fields used by the layout."""
+        self.data._ensure_built()
         row_count = len(self.data.df)
-        self.parent_to_children = {i: [] for i in range(row_count)}
-        self.row_keys = []
+        self.parent_to_children = {
+            i: list(children) for i, children in self.data._parent_to_children.items()
+        }
+        self.row_keys = [tuple(self.data._hierarchy_keys[i].tolist()) for i in range(row_count)]
         self.row_sides = []
-        self.child_indices = set()
-
-        key_to_index: Dict[Tuple[int, ...], int] = {}
-        for idx in range(row_count):
-            row = self.data.get_row(idx)
-            hierarchy_key = self.data.get_hierarchy_key(row, idx)
-            key_to_index[hierarchy_key] = idx
-            self.row_keys.append(hierarchy_key)
-
-            side_value = row.get("SIDE 1", 1)
-            try:
-                self.row_sides.append(int(side_value))
-            except (TypeError, ValueError):
-                self.row_sides.append(1)
-
-        for idx, hierarchy_key in enumerate(self.row_keys):
-            parent_key = self.data.get_parent_key(hierarchy_key)
-            parent_idx = key_to_index.get(parent_key)
-            if parent_idx is not None and parent_idx != idx:
-                self.parent_to_children[parent_idx].append(idx)
-                self.child_indices.add(idx)
+        if row_count:
+            sides = self.data.df["SIDE 1"].tolist()
+            self.row_sides = [int(s) if s is not None else 1 for s in sides]
+        self.child_indices = {child for children in self.parent_to_children.values() for child in children}
 
     def _compute_subtree_size(self, row_index: int) -> Tuple[float, float]:
         if row_index in self.subtree_sizes:
@@ -197,8 +184,7 @@ class HierarchicalLayout:
         self.subtree_sizes[row_index] = (max(top_width, bottom_width, self.HORIZONTAL_SPACING), subtree_height)
 
     def get_level_for_position(self, row_index: int) -> int:
-        row = self.data.get_row(row_index)
-        return self.data.get_level_from_hierarchy(row)
+        return self.data.get_level(row_index)
 
     def _get_horizontal_spacing_for_level(self, level: int) -> float:
         if level >= 6:

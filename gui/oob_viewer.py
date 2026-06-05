@@ -16,6 +16,7 @@ from gui.oob_tree_view import OOBTreeWidget
 from gui.oob_details_view import OOBDetailsWidget
 from gui.oob_visual_view import OOBVisualWidget
 from gui.oob_map_view import OOBMapWidget
+from gui.oob_scenario_tab import ScenarioTab
 
 
 def apply_dark_theme(app: QApplication) -> None:
@@ -118,6 +119,11 @@ def apply_dark_theme(app: QApplication) -> None:
             color: #ffffff;
         }
 
+        QMenu::item:disabled {
+            color: #5a5a5a;
+            background-color: transparent;
+        }
+
         QMenu::separator {
             height: 1px;
             background: #444444;
@@ -140,6 +146,7 @@ class OOBViewer(QMainWindow):
 
         self.data = OOBData()
         self.validator = OOBValidator(self.data)
+        self._propagating_selection: bool = False
 
         self.central = QWidget()
         self.setCentralWidget(self.central)
@@ -163,6 +170,12 @@ class OOBViewer(QMainWindow):
         self.save_scenario_button.clicked.connect(self.save_scenario_dialog)
         self.save_scenario_button.setEnabled(False)
         controls_layout.addWidget(self.save_scenario_button)
+
+        self.regen_button = QPushButton("Regen Indices")
+        self.regen_button.clicked.connect(self.action_regenerate_indices)
+        self.regen_button.setEnabled(False)
+        self.regen_button.setToolTip("Regenerate hierarchy indices sequentially under each parent")
+        controls_layout.addWidget(self.regen_button)
 
         self.status_label = QLabel("No file loaded")
         controls_layout.addWidget(self.status_label)
@@ -197,6 +210,8 @@ class OOBViewer(QMainWindow):
 
         self.map_viewer.unit_selected.connect(self.on_unit_selected)
 
+        self.scenario = ScenarioTab(self.map_viewer)
+
         vseparator = QFrame()
         vseparator.setFrameShape(QFrame.Shape.VLine)
         vseparator.setFrameShadow(QFrame.Shadow.Sunken)
@@ -218,6 +233,7 @@ class OOBViewer(QMainWindow):
         self.right_tab_widget = QTabWidget()
         self.right_tab_widget.addTab(self.details, "Details")
         self.right_tab_widget.addTab(self.map_viewer, "Map")
+        self.right_tab_widget.addTab(self.scenario, "Scenario")
 
         self.left_splitter.addWidget(self.tree)
         self.left_splitter.addWidget(self.visual)
@@ -299,6 +315,7 @@ class OOBViewer(QMainWindow):
             self.status_label.setText(path)
             self.save_button.setEnabled(True)
             self.save_scenario_button.setEnabled(True)
+            self.regen_button.setEnabled(True)
 
         except Exception as e:
             QMessageBox.critical(self, "Load Error", str(e))
@@ -315,16 +332,47 @@ class OOBViewer(QMainWindow):
                 f"Failed to save CSV:\n{str(e)}")
 
     def on_unit_selected(self, row_index: int):
-        self.tree.select_unit(row_index)
-        self.details.populate(row_index)
-        self.visual.highlight_unit(row_index)
-        self.map_viewer.select_unit(row_index)
+        if self._propagating_selection:
+            return
+        self._propagating_selection = True
+        try:
+            # Skip tree.select_unit() when the tree itself initiated the selection
+            # — it already has the right selection state and we must not clear it.
+            if not self.tree._selection_from_tree:
+                self.tree.select_unit(row_index)
+            self.details.populate(row_index)
+            self.visual.highlight_unit(row_index)
+            self.map_viewer.select_unit(row_index)
+        finally:
+            self._propagating_selection = False
+            self.tree._selection_from_tree = False
 
-    def on_unit_deleted(self, num_deleted: int):
+    def on_unit_deleted(self, num_deleted: int, deleted_row_indices: list):
         self.visual.populate()
+        self.map_viewer.remove_units_by_row_indices(deleted_row_indices)
 
     def on_zoom_to_unit(self, row_index: int):
         self.map_viewer.on_unit_double_clicked(row_index)
+
+    def action_regenerate_indices(self):
+        reply = QMessageBox.question(
+            self, "Regenerate Hierarchy Indices",
+            "Regenerate all hierarchy indices sequentially under each parent?\n\n"
+            "This will renumber all units 1, 2, 3... under each parent.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            self.data.regenerate_hierarchy_indices()
+            self.tree.populate()
+            self.visual.populate()
+            QMessageBox.information(self, "Regenerate Complete",
+                                    "Hierarchy indices have been regenerated.")
+        except Exception as e:
+            QMessageBox.critical(self, "Regenerate Error",
+                                 f"Failed to regenerate indices:\n{str(e)}")
 
 
 def main():

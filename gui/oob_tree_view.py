@@ -1,6 +1,9 @@
 import json
+import os
+from typing import Dict, List, Tuple
 from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenu, QMessageBox, QHeaderView, QAbstractItemView,
+    QFileDialog, QApplication,
 )
 from PySide6.QtCore import Qt, Signal, QMimeData, QByteArray
 from PySide6.QtGui import QBrush, QColor, QDrag
@@ -20,7 +23,7 @@ class OOBTreeWidget(QTreeWidget):
         unit_double_clicked: Emitted when a unit is double-clicked; carries row index
     """
 
-    unit_deleted = Signal(int)
+    unit_deleted = Signal(int, list)
     unit_selected = Signal(int)
     unit_double_clicked = Signal(int)
     delete_requested = Signal()
@@ -28,11 +31,15 @@ class OOBTreeWidget(QTreeWidget):
     paste_requested = Signal()
     insert_template_requested = Signal()
     zoom_to_unit_requested = Signal(int)
+    formation_requested = Signal(int, dict)
 
     def __init__(self, data: OOBData, parent=None):
         super().__init__(parent)
 
         self.data = data
+        self._drag_start_pos = None
+        self._drag_item = None
+        self._selection_from_tree = False
 
         self.setColumnCount(5)
         self.setHeaderLabels(["Unit", "Level", "Strength", "Experience", "Line"])
@@ -77,58 +84,99 @@ class OOBTreeWidget(QTreeWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
         self.setDragEnabled(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._selection_from_tree = False
 
     def populate(self) -> None:
         self.clear()
         if self.data.df is None:
             return
 
-        items_by_key = {}
-        items_data = []
-        for idx, row in self.data.df.iterrows():
-            try:
-                level = self.data.get_level_from_hierarchy(row)
-                if level is None:
-                    continue
+        self.data._ensure_built()
+        df = self.data.df
+        n_rows = len(df)
 
-                hierarchy_key = self.data.get_hierarchy_key(row, idx)
-                name = str(row.get("NAME1", "Unknown"))
-                strength = row.get("Head Count", "")
-                avg_experience = row.get("Experience", "")
-                level_info = self.data.get_hierarchy_level_name_and_index(hierarchy_key)
-                line_num = int(row.get("line_number", idx + 2))
-                side = int(row.get("SIDE 1", 0) or 0)
+        # Precompute per-row scalars as plain Python lists (avoid per-node iloc).
+        head_counts = [float(v) if v is not None and not pd.isna(v) else 0.0
+                       for v in df["Head Count"].tolist()] if "Head Count" in df.columns else [0.0] * n_rows
+        experiences = [float(v) if v is not None and not pd.isna(v) else 0.0
+                       for v in df["Experience"].tolist()] if "Experience" in df.columns else [0.0] * n_rows
+        formations = [str(v) if v is not None and not pd.isna(v) else ""
+                      for v in df["Formation"].tolist()] if "Formation" in df.columns else [""] * n_rows
+        line_nums = [int(v) if v is not None and not pd.isna(v) else i + 2
+                     for i, v in enumerate(df["line_number"].tolist())] if "line_number" in df.columns else list(range(2, n_rows + 2))
+        is_supply = ["SupplyWagon" in f for f in formations]
 
-                items_data.append({
-                    'idx': idx, 'level': level, 'hierarchy_key': hierarchy_key,
-                    'name': name, 'strength': strength, 'avg_experience': avg_experience,
-                    'level_info': level_info, 'line_num': line_num, 'side': side,
-                })
-            except ValueError as e:
-                raise ValueError(f"Invalid data in CSV: {str(e)}\n{traceback.format_exc()}")
+        # Per-row subtree aggregates via post-order DFS over the adjacency index.
+        subtree_strength: Dict[int, float] = {}
+        subtree_experience: Dict[int, float] = {}
 
-        items_data.sort(key=lambda x: x['level'])
-
-        for data in items_data:
-            item = QTreeWidgetItem([
-                data['name'], data['level_info'], str(data['strength']),
-                str(data['avg_experience']), str(data['line_num']),
-            ])
-            item.setData(0, Qt.UserRole, data['idx'])
-            item.setTextAlignment(2, Qt.AlignRight | Qt.AlignVCenter)
-            self.apply_side_colors(item, data['side'])
-
-            parent_key = self.data.get_parent_key(data['hierarchy_key'])
-            if parent_key in items_by_key:
-                items_by_key[parent_key].addChild(item)
+        def compute_aggregates(idx: int) -> None:
+            own_strength = head_counts[idx]
+            own_exp = experiences[idx] if not is_supply[idx] else None
+            children = self.data._parent_to_children.get(idx, [])
+            for child in children:
+                compute_aggregates(child)
+            total_strength = own_strength + sum(subtree_strength[c] for c in children)
+            subtree_strength[idx] = total_strength
+            if not children:
+                # Leaf: own experience, or 0 fallback.
+                subtree_experience[idx] = own_exp if own_exp is not None else experiences[idx]
             else:
-                self.addTopLevelItem(item)
-            items_by_key[data['hierarchy_key']] = item
+                # Internal: average of non-supply children's subtree averages.
+                # If every child is a supply wagon, fall back to own.
+                child_exps = [subtree_experience[c] for c in children if not is_supply[c]]
+                if child_exps:
+                    subtree_experience[idx] = sum(child_exps) / len(child_exps)
+                else:
+                    subtree_experience[idx] = own_exp if own_exp is not None else experiences[idx]
 
-        for i in range(self.topLevelItemCount()):
-            item = self.topLevelItem(i)
-            self.calculate_total_strength(item)
-            self.calculate_average_experience(item)
+        for top in range(n_rows):
+            if self.data.get_level(top) is None:
+                continue
+            # Top-level = no parent in _parent_to_children
+            if top not in self.data._children_set:
+                compute_aggregates(top)
+
+        # Build the items. Block all signals during the bulk insert.
+        items_by_key: Dict[Tuple, QTreeWidgetItem] = {}
+        top_level_items: List[QTreeWidgetItem] = []
+        self.blockSignals(True)
+        try:
+            for idx in range(n_rows):
+                try:
+                    level = self.data.get_level(idx)
+                    if level is None:
+                        continue
+                    hierarchy_key = self.data.get_hierarchy_key_by_index(idx)
+                    info = self.data.unit_info(idx)
+                    level_info = self.data.get_hierarchy_level_name_and_index(hierarchy_key)
+                    subtree_s = subtree_strength[idx]
+                    subtree_e = subtree_experience[idx]
+                    strength_str = (str(int(subtree_s)) if subtree_s == int(subtree_s)
+                                    else str(subtree_s))
+                    item = QTreeWidgetItem([
+                        info.name, level_info, strength_str,
+                        f"{subtree_e:.2f}", str(line_nums[idx]),
+                    ])
+                    item.setData(0, Qt.UserRole, idx)
+                    item.setTextAlignment(2, Qt.AlignRight | Qt.AlignVCenter)
+                    self.apply_side_colors(item, info.side)
+
+                    parent_key = self.data.get_parent_key(hierarchy_key)
+                    if parent_key in items_by_key:
+                        items_by_key[parent_key].addChild(item)
+                    else:
+                        top_level_items.append(item)
+                    items_by_key[hierarchy_key] = item
+                except ValueError as e:
+                    raise ValueError(f"Invalid data in CSV: {str(e)}\n{traceback.format_exc()}")
+
+            # Bulk-insert top-level items; children are already attached above.
+            if top_level_items:
+                self.addTopLevelItems(top_level_items)
+        finally:
+            self.blockSignals(False)
 
         self.expandToDepth(2)
         for col in range(self.columnCount()):
@@ -160,56 +208,6 @@ class OOBTreeWidget(QTreeWidget):
             item.setBackground(col, QBrush(background))
             item.setForeground(col, QBrush(foreground))
             item.setData(col, Qt.UserRole + 1, background)
-
-    def calculate_total_strength(self, item: QTreeWidgetItem) -> float:
-        row_index = item.data(0, Qt.UserRole)
-        if row_index is None:
-            total = 0
-        else:
-            row = self.data.df.iloc[row_index]
-            try:
-                total = float(row.get("Head Count", 0) or 0)
-            except (ValueError, TypeError):
-                total = 0
-
-        for i in range(item.childCount()):
-            child_item = item.child(i)
-            child_total = self.calculate_total_strength(child_item)
-            total += child_total
-
-        display_val = str(int(total)) if total == int(total) else str(total)
-        item.setText(2, display_val)
-        return total
-
-    def calculate_average_experience(self, item: QTreeWidgetItem) -> float:
-        row_index = item.data(0, Qt.UserRole)
-        if row_index is None:
-            return 0.0
-
-        row = self.data.df.iloc[row_index]
-        try:
-            own_exp = float(row.get("Experience", 0) or 0)
-        except (ValueError, TypeError):
-            own_exp = 0.0
-
-        child_exps = []
-        for i in range(item.childCount()):
-            child_item = item.child(i)
-            child_exp = self.calculate_average_experience(child_item)
-            child_row_index = child_item.data(0, Qt.UserRole)
-            if child_row_index is not None:
-                child_row = self.data.df.iloc[child_row_index]
-                child_formation = str(child_row.get("Formation", "") or "")
-                if "SupplyWagon" not in child_formation:
-                    child_exps.append(child_exp)
-
-        if item.childCount() == 0:
-            item.setText(3, f"{own_exp:.2f}")
-            return own_exp
-
-        avg_exp = (sum(child_exps) / len(child_exps)) if child_exps else own_exp
-        item.setText(3, f"{avg_exp:.2f}")
-        return avg_exp
 
     def find_item_by_row_index(self, row_index: int) -> QTreeWidgetItem | None:
         def _search(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
@@ -255,26 +253,41 @@ class OOBTreeWidget(QTreeWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.pos())
             if item:
-                row_index = item.data(0, Qt.UserRole)
+                self._drag_start_pos = event.position().toPoint()
+                self._drag_item = item
+            else:
+                self._drag_start_pos = None
+                self._drag_item = None
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._drag_start_pos is not None and self._drag_item is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            dist = (event.position().toPoint() - self._drag_start_pos).manhattanLength()
+            if dist >= QApplication.startDragDistance():
+                row_index = self._drag_item.data(0, Qt.UserRole)
                 if row_index is not None:
-                    row = self.data.df.iloc[row_index]
-                    unit_data = {
-                        "row_index": row_index,
-                        "name": str(row.get("NAME1", f"Unit {row_index}")),
-                        "side": int(row.get("SIDE 1", 1) or 1),
-                        "level": int(self.data.get_level_from_hierarchy(row) or 1),
-                        "formation": str(row.get("Formation", "")),
-                        "head_count": int(row.get("Head Count", 0) or 0),
-                    }
+                    info = self.data.unit_info(row_index)
+                    unit_payload = info.to_drag_payload()
 
                     mime_data = QMimeData()
-                    mime_data.setData("application/x-unit-drop", QByteArray(json.dumps(unit_data).encode('utf-8')))
+                    mime_data.setData("application/x-unit-drop",
+                                      QByteArray(json.dumps(unit_payload).encode('utf-8')))
 
                     drag = QDrag(self)
                     drag.setMimeData(mime_data)
                     drag.exec(Qt.DropAction.CopyAction)
 
-        super().mousePressEvent(event)
+                self._drag_start_pos = None
+                self._drag_item = None
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_start_pos = None
+        self._drag_item = None
+        super().mouseReleaseEvent(event)
 
     def on_selection_changed(self) -> None:
         items = self.selectedItems()
@@ -283,6 +296,7 @@ class OOBTreeWidget(QTreeWidget):
         item = items[0]
         row_index = item.data(0, Qt.UserRole)
         if row_index is not None:
+            self._selection_from_tree = True
             self.unit_selected.emit(row_index)
 
     def show_context_menu(self, position) -> None:
@@ -297,10 +311,66 @@ class OOBTreeWidget(QTreeWidget):
         menu.addAction("Collapse All", self.action_collapse_all)
         menu.addAction("Expand All", self.action_expand_all)
         menu.addSeparator()
+
+        # Move Up / Down
+        row_index = item.data(0, Qt.UserRole)
+        if row_index is not None:
+            level = self.data.get_level(row_index)
+            if level is not None:
+                parent_key = self.data.get_parent_key(
+                    self.data.get_hierarchy_key_by_index(row_index))
+                parent_row = next((i for i, k in enumerate(self.data._hierarchy_keys)
+                                   if tuple(k) == parent_key), -1)
+                if parent_row >= 0:
+                    siblings = self.data._parent_to_children.get(parent_row, [])
+                    if len(siblings) > 1:
+                        current_pos = None
+                        for pos, sib_idx in enumerate(siblings):
+                            if sib_idx == row_index:
+                                current_pos = pos
+                                break
+                        if current_pos is not None:
+                            if current_pos > 0:
+                                menu.addAction("Move Up", self.action_move_up)
+                            if current_pos < len(siblings) - 1:
+                                menu.addAction("Move Down", self.action_move_down)
+
+                # Add Single Unit submenu
+                if level < 6:
+                    unit_menu = menu.addMenu("Add Single Unit")
+                    templates_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(__file__)),
+                        "templates", "units")
+                    if os.path.exists(templates_dir):
+                        for fname in sorted(os.listdir(templates_dir)):
+                            if fname.endswith(".csv"):
+                                template_name = fname[:-4]  # strip .csv
+                                action = unit_menu.addAction(template_name)
+                                action.setData(os.path.join(templates_dir, fname))
+
+                # Add Formation submenu
+                if level < 6:
+                    formation_menu = menu.addMenu("Add Formation")
+                    action_infantry = formation_menu.addAction("Infantry Formation")
+                    action_infantry.setData("infantry")
+                    action_cavalry = formation_menu.addAction("Cavalry Formation")
+                    action_cavalry.setData("cavalry")
+                    action_artillery = formation_menu.addAction("Artillery Formation")
+                    action_artillery.setData("artillery")
+
+        menu.addSeparator()
         menu.addAction("Insert Unit Template", self.action_insert_template)
         menu.addAction("Copy CSV Format to Clipboard", self.action_copy_csv_format)
 
-        menu.exec(self.mapToGlobal(position))
+        # Connect submenu actions
+        result = menu.exec(self.mapToGlobal(position))
+        if result is not None:
+            data = result.data()
+            if data and isinstance(data, str):
+                if data.endswith(".csv"):
+                    self.action_add_single_unit(data)
+                elif data in ("infantry", "cavalry", "artillery"):
+                    self.action_add_formation(data)
 
     def action_zoom_to_unit(self) -> None:
         items = self.selectedItems()
@@ -318,25 +388,61 @@ class OOBTreeWidget(QTreeWidget):
             QMessageBox.warning(self, "Delete Unit", "No unit selected")
             return
 
-        item = items[0]
-        row_index = item.data(0, Qt.UserRole)
-        if row_index is None:
-            QMessageBox.warning(self, "Delete Unit", "Cannot delete this item")
+        # Collect all row indices to delete, expanding each to its full subtree.
+        # Use a set to deduplicate (selecting both a parent and child is common).
+        to_delete: set = set()
+        for item in items:
+            row_index = item.data(0, Qt.UserRole)
+            if row_index is None:
+                continue
+            try:
+                to_delete.update(self.data.get_subordinate_row_indices(row_index))
+            except ValueError:
+                to_delete.add(row_index)
+
+        if not to_delete:
             return
 
-        try:
-            num_deleted = self.data.delete_unit(row_index)
-            self.populate()
-            self.unit_deleted.emit(num_deleted)
+        count = len(to_delete)
+        unit_word = "unit" if count == 1 else "units"
+        reply = QMessageBox.question(
+            self, "Confirm Delete",
+            f"Delete {count} {unit_word}?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
 
-            num_subordinates = num_deleted - 1
-            if num_subordinates > 0:
-                QMessageBox.information(self, "Delete Unit",
-                                        f"Deleted unit and {num_subordinates} subordinates")
-            else:
-                QMessageBox.information(self, "Delete Unit", "Unit deleted")
-        except Exception as e:
-            QMessageBox.critical(self, "Delete Error", f"Failed to delete unit:\n{str(e)}")
+        # Snapshot each root's hierarchy key and subordinate indices *before* any
+        # deletion.  Delete in reverse order so that earlier row indices stay valid
+        # as the DataFrame shrinks from the tail.
+        roots = []
+        for item in items:
+            row_index = item.data(0, Qt.UserRole)
+            if row_index is None:
+                continue
+            try:
+                hk = self.data.get_hierarchy_key_by_index(row_index)
+                sub = self.data.get_subordinate_row_indices(row_index)
+                roots.append((row_index, hk, sub))
+            except ValueError:
+                pass
+
+        all_deleted_indices: list = []
+        for row_index, hk, sub in reversed(roots):
+            # Validate: the hierarchy key at this row must still match (it may have
+            # shifted or disappeared after a prior deletion).
+            try:
+                if tuple(self.data._hierarchy_keys[row_index].tolist()) != tuple(hk):
+                    continue
+            except (IndexError, TypeError):
+                continue
+            all_deleted_indices.extend(sub)
+            self.data.delete_unit(row_index)
+
+        self.populate()
+        self.unit_deleted.emit(len(all_deleted_indices), all_deleted_indices)
 
     def action_collapse_all(self) -> None:
         self.collapseAll()
@@ -378,3 +484,69 @@ class OOBTreeWidget(QTreeWidget):
             QMessageBox.information(self, "Copy CSV", "Unit data copied to clipboard in CSV format")
         except Exception as e:
             QMessageBox.critical(self, "Copy CSV Error", f"Failed to copy: {str(e)}")
+
+    def action_move_up(self) -> None:
+        items = self.selectedItems()
+        if not items:
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
+            return
+        if self.data.move_unit(row_index, -1):
+            self.populate()
+            self.select_unit(row_index)
+
+    def action_move_down(self) -> None:
+        items = self.selectedItems()
+        if not items:
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
+            return
+        if self.data.move_unit(row_index, +1):
+            self.populate()
+            self.select_unit(row_index)
+
+    def action_add_single_unit(self, template_path: str) -> None:
+        items = self.selectedItems()
+        if not items:
+            QMessageBox.warning(self, "Add Unit", "No parent unit selected")
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
+            QMessageBox.warning(self, "Add Unit", "Cannot add under this item")
+            return
+        try:
+            new_idx = self.data.insert_unit(row_index, template_path)
+            self.populate()
+            self.select_unit(new_idx)
+        except Exception as e:
+            QMessageBox.critical(self, "Add Unit Error", f"Failed to add unit:\n{str(e)}")
+
+    def action_add_formation(self, formation_type: str) -> None:
+        items = self.selectedItems()
+        if not items:
+            QMessageBox.warning(self, "Add Formation", "No parent unit selected")
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
+            QMessageBox.warning(self, "Add Formation", "Cannot add under this item")
+            return
+        templates_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "templates", "units")
+        composition = {
+            "commander_name": f"New {formation_type.title()} Commander",
+            "commander_level": 5,
+            "commander_formation": formation_type.title(),
+            "sub_units": [
+                {"template": f"lvl6_{formation_type}.csv", "count": 3},
+            ]
+        }
+        try:
+            inserted = self.data.insert_formation(row_index, composition)
+            self.populate()
+            if inserted:
+                self.select_unit(inserted[0])
+        except Exception as e:
+            QMessageBox.critical(self, "Add Formation Error", f"Failed to add formation:\n{str(e)}")
