@@ -1,13 +1,15 @@
 from PySide6.QtWidgets import (
     QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from core.oob_model import OOBData
 import pandas as pd
 
 
 class OOBDetailsWidget(QWidget):
     """Widget for displaying and editing unit detail information."""
+
+    detail_changed = Signal()
 
     def __init__(self, data: OOBData, parent=None):
         super().__init__(parent)
@@ -95,3 +97,4 @@ class OOBDetailsWidget(QWidget):
                 except ValueError:
                     pass
             self.data.set_cell(self.current_row_index, field_name, new_value)
+            self.detail_changed.emit()

@@ -26,6 +26,7 @@ class OOBTreeWidget(QTreeWidget):
     unit_deleted = Signal(int, list)
     unit_selected = Signal(int)
     unit_double_clicked = Signal(int)
+    unit_added = Signal()
     delete_requested = Signal()
     copy_requested = Signal()
     paste_requested = Signal()
@@ -918,6 +919,7 @@ class OOBTreeWidget(QTreeWidget):
             new_idx = self.data.insert_unit(row_index, template_path)
             self.populate()
             self.select_unit(new_idx)
+            self.unit_added.emit()
         except Exception as e:
             QMessageBox.critical(self, "Add Unit Error",
                                  f"Failed to add unit from template:\n{template_path}\n\n"
@@ -949,6 +951,7 @@ class OOBTreeWidget(QTreeWidget):
             self.populate_with_expansion()
             if inserted:
                 self.select_unit(inserted[0])
+            self.unit_added.emit()
         except Exception as e:
             QMessageBox.critical(self, "Add Formation Error",
                                  f"Failed to add {formation_type} formation:\n\n"

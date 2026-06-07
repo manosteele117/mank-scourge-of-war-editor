@@ -6,7 +6,7 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSizePolicy, QFileDialog, QLabel, QPushButton, QSplitter, QMessageBox, QTabWidget,
-    QFrame,
+    QFrame, QDialog, QDialogButtonBox, QScrollArea,
 )
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtCore import Qt
@@ -19,6 +19,7 @@ from gui.oob_visual_view import OOBVisualWidget
 from gui.oob_shared_toolbar import OOBSharedToolbar
 from gui.oob_map_view import OOBMapWidget
 from gui.oob_scenario_tab import ScenarioTab
+from gui.oob_files_tab import FilesTab
 
 
 def apply_dark_theme(app: QApplication) -> None:
@@ -159,10 +160,6 @@ class OOBViewer(QMainWindow):
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.setSpacing(8)
 
-        self.load_button = QPushButton("Load OOB")
-        self.load_button.clicked.connect(self.load_csv_dialog)
-        controls_layout.addWidget(self.load_button)
-
         self.save_button = QPushButton("Save OOB")
         self.save_button.clicked.connect(self.save_csv_dialog)
         self.save_button.setEnabled(False)
@@ -173,8 +170,11 @@ class OOBViewer(QMainWindow):
         self.save_scenario_button.setEnabled(False)
         controls_layout.addWidget(self.save_scenario_button)
 
-        self.status_label = QLabel("No file loaded")
-        controls_layout.addWidget(self.status_label)
+        self.validate_button = QPushButton("Validate OOB")
+        self.validate_button.clicked.connect(self.show_validation_report)
+        self.validate_button.setEnabled(False)
+        self._set_validation_state("unknown")
+        controls_layout.addWidget(self.validate_button)
 
         controls_layout.addStretch()
 
@@ -192,6 +192,7 @@ class OOBViewer(QMainWindow):
         self.tree.unit_selected.connect(self.on_unit_selected)
         self.tree.unit_deleted.connect(self.on_unit_deleted)
         self.tree.unit_moved.connect(self.on_unit_moved)
+        self.tree.unit_added.connect(self._on_unit_added)
         self.tree.zoom_to_unit_requested.connect(self.on_zoom_to_unit)
 
         self.shared_toolbar = OOBSharedToolbar()
@@ -209,6 +210,7 @@ class OOBViewer(QMainWindow):
         self.visual.setVisible(False)
 
         self.details = OOBDetailsWidget(self.data)
+        self.details.detail_changed.connect(self._on_detail_edited)
 
         self.config = self._load_config()
 
@@ -225,30 +227,15 @@ class OOBViewer(QMainWindow):
 
         self.scenario = ScenarioTab(self.map_viewer)
 
-        vseparator = QFrame()
-        vseparator.setFrameShape(QFrame.Shape.VLine)
-        vseparator.setFrameShadow(QFrame.Shadow.Sunken)
-        controls_layout.addWidget(vseparator)
-
-        self.load_formations_button = QPushButton("Load Formations")
-        self.load_formations_button.clicked.connect(
-            lambda: self.map_viewer.load_formations_dialog())
-        controls_layout.addWidget(self.load_formations_button)
-
-        self.drills_label = QLabel("No drills file loaded")
-        controls_layout.addWidget(self.drills_label)
-
-        self.map_viewer.drills_loaded.connect(
-            lambda path: self.drills_label.setText(f"Drills: {path}"))
-        self.map_viewer.drills_loaded.connect(
-            lambda path: self._save_config(drills=path))
-        if self.map_viewer.drills_path:
-            self.drills_label.setText(f"Drills: {self.map_viewer.drills_path}")
-
         self.right_tab_widget = QTabWidget()
         self.right_tab_widget.addTab(self.details, "Details")
         self.right_tab_widget.addTab(self.map_viewer, "Map")
         self.right_tab_widget.addTab(self.scenario, "Scenario")
+
+        self.files_tab = FilesTab()
+        self.files_tab.file_changed.connect(self._on_file_changed)
+        self.right_tab_widget.addTab(self.files_tab, "Files/Settings")
+
         if self.config.get("map-ini"):
             self.right_tab_widget.setCurrentWidget(self.map_viewer)
 
@@ -265,6 +252,13 @@ class OOBViewer(QMainWindow):
         self.main_splitter.setStretchFactor(1, 1)
 
         self.layout.addWidget(self.main_splitter, 1)
+
+        # Initialize FilesTab with saved config values
+        for key in ("oob", "drills", "rifles", "artillery", "gfx",
+                    "unitglobal", "unitmodel"):
+            path = self.config.get(key)
+            if path:
+                self.files_tab.set_entry_path(key, path)
 
         # Resolve OOB path: command line > config > None
         cli_path = csv_path if csv_path else None
@@ -283,17 +277,17 @@ class OOBViewer(QMainWindow):
         if not os.path.exists(config_path):
             parser = configparser.ConfigParser()
             parser.add_section("paths")
-            parser.set("paths", "map-ini", "")
-            parser.set("paths", "drills", "")
-            parser.set("paths", "oob", "")
+            for key in ("map-ini", "drills", "oob", "rifles", "artillery",
+                        "gfx", "unitglobal", "unitmodel"):
+                parser.set("paths", key, "")
             with open(config_path, "w") as f:
                 parser.write(f)
         parser = configparser.ConfigParser()
         parser.read(config_path)
         return {
-            "map-ini": parser.get("paths", "map-ini", fallback=""),
-            "drills": parser.get("paths", "drills", fallback=""),
-            "oob": parser.get("paths", "oob", fallback=""),
+            key: parser.get("paths", key, fallback="")
+            for key in ("map-ini", "drills", "oob", "rifles", "artillery",
+                        "gfx", "unitglobal", "unitmodel")
         }
 
     def _save_config(self, **kwargs):
@@ -307,12 +301,8 @@ class OOBViewer(QMainWindow):
         parser.read(config_path)
         if "paths" not in parser:
             parser.add_section("paths")
-        if "map-ini" in kwargs:
-            parser.set("paths", "map-ini", kwargs["map-ini"])
-        if "drills" in kwargs:
-            parser.set("paths", "drills", kwargs["drills"])
-        if "oob" in kwargs:
-            parser.set("paths", "oob", kwargs["oob"])
+        for key, val in kwargs.items():
+            parser.set("paths", key, val)
         with open(config_path, "w") as f:
             parser.write(f)
 
@@ -321,6 +311,15 @@ class OOBViewer(QMainWindow):
         if path:
             self.load_csv(path)
             self._save_config(oob=path)
+
+    def _on_file_changed(self, config_key: str, file_path: str):
+        self._save_config(**{config_key: file_path})
+        if config_key == "oob":
+            self.load_csv(file_path)
+        elif config_key == "drills":
+            self.map_viewer._load_formations(file_path)
+        elif config_key == "map-ini":
+            self.map_viewer.load_map_from_ini(file_path)
 
     def save_csv_dialog(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save OOB CSV", "", "CSV Files (*.csv)")
@@ -359,25 +358,132 @@ class OOBViewer(QMainWindow):
                 f"Error: {type(e).__name__}: {str(e)}\n\n"
                 f"Stack trace:\n{traceback.format_exc()}")
 
+    def show_validation_report(self):
+        issues = self.validator.validate()
+        total = len(self.data.df) if self.data.df is not None else 0
+        if issues:
+            self._set_validation_state("fail")
+        else:
+            self._set_validation_state("pass")
+        self._show_validation_dialog(issues, total)
+
+    def print_validation_report(self):
+        issues = self.validator.validate()
+        total = len(self.data.df) if self.data.df is not None else 0
+        if issues:
+            self._set_validation_state("fail")
+        else:
+            self._set_validation_state("pass")
+        if not issues:
+            print(f"Validation passed: all checks passed across {total} units.")
+            return
+        print(f"Validation: {len(issues)} issue(s) found across {total} units.\n")
+        grouped = {}
+        for issue in issues:
+            grouped.setdefault(issue.check_name, []).append(issue)
+        for check_name, check_issues in grouped.items():
+            print(f"--- {check_name} ({len(check_issues)} issue(s)) ---")
+            for issue in check_issues:
+                print(f"  Line {issue.line_number}: {issue.unit_name}")
+                for line in issue.message.split("\n"):
+                    print(f"    {line}")
+            print()
+
+    def _set_validation_state(self, state: str):
+        if state == "fail":
+            self.validate_button.setText("Validate OOB")
+            self.validate_button.setStyleSheet(
+                "QPushButton { color: #f44336; font-weight: bold; }")
+        elif state == "pass":
+            self.validate_button.setText("Validate OOB")
+            self.validate_button.setStyleSheet(
+                "QPushButton { color: #66bb6a; font-weight: bold; }")
+        else:
+            self.validate_button.setText("Validate OOB")
+            self.validate_button.setStyleSheet(
+                "QPushButton { color: #ffffff; font-weight: normal; }")
+
+    def _show_validation_dialog(self, issues, total: int):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("OOB Validation Report")
+        dialog.setMinimumSize(700, 500)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(4, 4, 4, 4)
+        scroll_layout.setSpacing(8)
+
+        if not issues:
+            lbl = QLabel(f"All checks passed across {total} units.")
+            lbl.setStyleSheet("color: #66bb6a; font-size: 14px; font-weight: bold; padding: 12px;")
+            scroll_layout.addWidget(lbl)
+        else:
+            header = QLabel(f"{len(issues)} issue(s) found across {total} units.")
+            header.setStyleSheet("color: #ffa726; font-size: 14px; font-weight: bold; padding: 4px 12px;")
+            scroll_layout.addWidget(header)
+
+            grouped = {}
+            for issue in issues:
+                grouped.setdefault(issue.check_name, []).append(issue)
+
+            for check_name, check_issues in grouped.items():
+                cat_label = QLabel(f"{check_name} ({len(check_issues)} issue(s))")
+                cat_label.setStyleSheet("color: #90a4ae; font-size: 12px; font-weight: bold; padding-top: 8px;")
+                scroll_layout.addWidget(cat_label)
+
+                for issue in check_issues:
+                    frame = QFrame()
+                    frame.setStyleSheet(
+                        "QFrame { background: #252525; border-left: 3px solid #ffa726; "
+                        "border-radius: 2px; }")
+                    frame_layout = QVBoxLayout(frame)
+                    frame_layout.setContentsMargins(10, 8, 10, 8)
+                    frame_layout.setSpacing(4)
+
+                    title = QLabel(f"Line {issue.line_number}:  {issue.unit_name}")
+                    title.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px;")
+                    title.setWordWrap(True)
+                    frame_layout.addWidget(title)
+
+                    detail = QLabel(issue.message)
+                    detail.setStyleSheet("color: #bbbbbb; font-size: 12px;")
+                    detail.setWordWrap(True)
+                    frame_layout.addWidget(detail)
+
+                    scroll_layout.addWidget(frame)
+
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        button_box.rejected.connect(dialog.close)
+        layout.addWidget(button_box)
+
+        dialog.exec()
+
     def load_csv(self, path):
         try:
             self.data.load_csv(path)
 
-            warnings = self.validator.validate_unit_stats()
-            if warnings:
-                print("OOB Validation Warnings:")
-                for warning in warnings:
-                    print(f"  {warning}\n")
+            self.print_validation_report()
 
             self.map_viewer._clear_all_units()
             self.tree.populate()
             self.visual.populate()
             self.details.clear()
 
-            self.status_label.setText(path)
             self.save_button.setEnabled(True)
             self.save_scenario_button.setEnabled(True)
+            self.validate_button.setEnabled(True)
             self.shared_toolbar.setDisabled(False)
+            self.files_tab.set_entry_path("oob", path)
 
         except Exception as e:
             QMessageBox.critical(self, "Load Error",
@@ -415,13 +521,21 @@ class OOBViewer(QMainWindow):
             self.tree._selection_from_tree = False
 
     def on_unit_deleted(self, num_deleted: int, deleted_row_indices: list):
+        self._set_validation_state("unknown")
         self.visual.populate()
         self.map_viewer.remove_units_by_row_indices(deleted_row_indices)
         self.map_viewer.shift_placed_unit_indices(deleted_row_indices)
         self._on_placement_changed()
 
     def on_unit_moved(self, source_row_indices: list):
+        self._set_validation_state("unknown")
         self.visual.populate()
+
+    def _on_unit_added(self):
+        self._set_validation_state("unknown")
+
+    def _on_detail_edited(self):
+        self._set_validation_state("unknown")
 
     def on_zoom_to_unit(self, row_index: int):
         self.map_viewer.on_unit_double_clicked(row_index)
