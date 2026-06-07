@@ -420,35 +420,11 @@ class OOBTreeWidget(QTreeWidget):
         if reply != QMessageBox.Yes:
             return
 
-        # Snapshot each root's hierarchy key and subordinate indices *before* any
-        # deletion.  Delete in reverse order so that earlier row indices stay valid
-        # as the DataFrame shrinks from the tail.
-        roots = []
-        for item in items:
-            row_index = item.data(0, Qt.UserRole)
-            if row_index is None:
-                continue
-            try:
-                hk = self.data.get_hierarchy_key_by_index(row_index)
-                sub = self.data.get_subordinate_row_indices(row_index)
-                roots.append((row_index, hk, sub))
-            except ValueError:
-                pass
-
-        all_deleted_indices: list = []
-        for row_index, hk, sub in reversed(roots):
-            # Validate: the hierarchy key at this row must still match (it may have
-            # shifted or disappeared after a prior deletion).
-            try:
-                if tuple(self.data._hierarchy_keys[row_index].tolist()) != tuple(hk):
-                    continue
-            except (IndexError, TypeError):
-                continue
-            all_deleted_indices.extend(sub)
-            self.data.delete_unit(row_index)
+        deleted_indices = sorted(to_delete)
+        self.data.delete_rows(to_delete)
 
         self.populate()
-        self.unit_deleted.emit(len(all_deleted_indices), all_deleted_indices)
+        self.unit_deleted.emit(len(deleted_indices), deleted_indices)
 
     def action_collapse_all(self) -> None:
         self.collapseAll()

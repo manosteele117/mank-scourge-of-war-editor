@@ -175,7 +175,7 @@ class OOBData:
         df.to_csv(path, encoding="cp1252", index=False)
         self.filepath = path
 
-    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units) -> None:
+    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None) -> None:
         import os
         df = self._ensure_df().copy()
         if "line_number" in df.columns:
@@ -236,6 +236,11 @@ class OOBData:
                     if pu.get("formation"):
                         scenario_df.at[i, "formation"] = pu["formation"]
 
+        # Only save rows for units that were placed on the map.
+        if placed_units:
+            placed_row_indices = set(pu["row_index"] for pu in placed_units)
+            scenario_df = scenario_df[scenario_df.index.isin(placed_row_indices)].reset_index(drop=True)
+
         os.makedirs(scenario_dir, exist_ok=True)
         path = os.path.join(scenario_dir, "scenario.csv")
         scenario_df.to_csv(path, encoding="cp1252", index=False)
@@ -250,6 +255,23 @@ class OOBData:
             f.writelines(lines)
 
         _copy_templates(scenario_dir)
+
+        # Write objectives to maplocations.csv
+        if objectives:
+            maplocations_header = [
+                "Name", "ID", "Priority", "Type", "AI",
+                "loc x", "loc z", "radius", "Men", "Points",
+                "Fatigue", "Morale", "Ammo", "OccMod",
+                "Beg", "End", "Interval", "Sprite",
+                "Army1", "Army2", "Army3",
+            ]
+            maplocations_path = os.path.join(scenario_dir, "maplocations.csv")
+            with open(maplocations_path, "w", encoding="cp1252") as f:
+                f.write(",".join(maplocations_header) + "\n")
+                for obj in objectives:
+                    fields = obj.get("fields", {})
+                    row = ",".join(str(fields.get(col, "")) for col in maplocations_header)
+                    f.write(row + "\n")
 
         if map_name:
             ini_path = os.path.join(scenario_dir, "scenario.ini")
@@ -494,6 +516,17 @@ class OOBData:
         self._invalidate_caches()
         self._build_adjacency_index()
         return len(rows_to_delete)
+
+    def delete_rows(self, row_indices: set) -> int:
+        self._ensure_built()
+        if not row_indices:
+            return 0
+        keep_mask = np.ones(len(self.df), dtype=bool)
+        keep_mask[list(row_indices)] = False
+        self.df = self.df.loc[keep_mask].reset_index(drop=True)
+        self._invalidate_caches()
+        self._build_adjacency_index()
+        return len(row_indices)
 
     # ── Move / Insert / Regenerate ─────────────────────────────────
 

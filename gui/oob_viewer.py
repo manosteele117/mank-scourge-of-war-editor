@@ -331,8 +331,10 @@ class OOBViewer(QMainWindow):
         oob_status_path = self.status_label.text()
         oob_filename = os.path.basename(oob_status_path) if oob_status_path else ""
 
+        objectives = self.map_viewer.get_all_objectives_data()
+
         try:
-            self.data.save_scenario(scenario_dir, map_name, oob_filename, placed_units)
+            self.data.save_scenario(scenario_dir, map_name, oob_filename, placed_units, objectives)
             QMessageBox.information(
                 self, "Save Successful",
                 f"Scenario file saved to:\n{scenario_dir}")
@@ -401,6 +403,7 @@ class OOBViewer(QMainWindow):
     def on_unit_deleted(self, num_deleted: int, deleted_row_indices: list):
         self.visual.populate()
         self.map_viewer.remove_units_by_row_indices(deleted_row_indices)
+        self.map_viewer.shift_placed_unit_indices(deleted_row_indices)
 
     def on_zoom_to_unit(self, row_index: int):
         self.map_viewer.on_unit_double_clicked(row_index)

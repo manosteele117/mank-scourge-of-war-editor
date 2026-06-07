@@ -1073,6 +1073,23 @@ class OOBMapWidget(QWidget):
         self._highlighted -= to_remove
         self._update_unit_count()
 
+    def shift_placed_unit_indices(self, deleted_row_indices):
+        """Recompute row indices of remaining placed units after rows were deleted.
+
+        When rows are removed from the DataFrame, all row indices above the
+        deleted rows shift down.  This method adjusts the ``unit_row_index``
+        of every remaining placed unit and rebuilds the lookup dicts.
+        """
+        deleted_set = set(deleted_row_indices)
+        self.placed_by_row.clear()
+        self.placed_row_indices.clear()
+        for unit in self.placed_units:
+            idx = unit.unit_row_index
+            shift = sum(1 for d in deleted_set if d < idx)
+            unit.unit_row_index -= shift
+            self.placed_by_row[unit.unit_row_index] = unit
+            self.placed_row_indices.add(unit.unit_row_index)
+
     def get_placed_units_data(self) -> List[Dict]:
         return [
             {
