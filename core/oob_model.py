@@ -331,6 +331,15 @@ class OOBData:
         self._ensure_built()
         return tuple(int(v) for v in self._hierarchy_keys[row_index])
 
+    def get_row_index_by_key(self, hierarchy_key: Tuple[int, ...]) -> Optional[int]:
+        """Return the row_index whose hierarchy key matches, or None if not found."""
+        self._ensure_built()
+        target = np.array(hierarchy_key, dtype=np.int64)
+        for i, k in enumerate(self._hierarchy_keys):
+            if np.array_equal(k, target):
+                return i
+        return None
+
     def get_parent_key(self, hierarchy_key: Tuple[int, ...]) -> Tuple[int, ...]:
         """Get the parent's hierarchy key by setting the last non-zero value to 0."""
         key = list(hierarchy_key)

@@ -89,6 +89,7 @@ class OOBTreeWidget(QTreeWidget):
         self._expanded_keys: set = set()
         self.itemExpanded.connect(self._on_item_expanded)
         self.itemCollapsed.connect(self._on_item_collapsed)
+        self.itemDoubleClicked.connect(self._on_item_double_clicked)
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
         row_index = item.data(0, Qt.UserRole)
@@ -108,9 +109,16 @@ class OOBTreeWidget(QTreeWidget):
             except (IndexError, TypeError):
                 pass
 
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        row_index = item.data(0, Qt.UserRole)
+        if row_index is not None:
+            self.zoom_to_unit_requested.emit(row_index)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:
             self.action_delete()
+        elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.action_zoom_to_unit()
         else:
             super().keyPressEvent(event)
 

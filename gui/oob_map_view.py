@@ -10,7 +10,7 @@ import math
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox,
     QSlider, QFileDialog, QMessageBox, QSizePolicy, QGraphicsView, QGraphicsScene,
-    QGraphicsItem, QMenu,
+    QGraphicsItem, QGraphicsItemGroup, QGraphicsLineItem, QGraphicsEllipseItem, QMenu,
 )
 from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor, QPainterPath, QPolygonF, QPainterPathStroker
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
@@ -35,13 +35,17 @@ class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
 
         # Right-click rotation state
         self.is_rotating = False
-        self.rotation_reference_items = []  # store (item, start_angle) pairs
+        self.rotation_reference_items = []  # (item, start_wx, start_wy, start_rot)
+        self._rotation_pivot_world = None
+        self._pivot_marker = None
         self._last_mouse_angle = None
+        self._total_delta_so_far = 0.0
 
         self.init_zoom_state()
 
     def wheelEvent(self, event):
         ZoomableGraphicsView.wheelEvent(self, event)
+        self._update_pivot_marker_size()
 
     def mouseMoveEvent(self, event):
         if self._handle_pan_move(event):
@@ -49,14 +53,29 @@ class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
         if self.is_rotating and self.rotation_reference_items:
             scene_pos = self.mapToScene(event.pos())
             if self._last_mouse_angle is not None:
-                for item in self.rotation_reference_items:
-                    center = item.mapToScene(item.boundingRect().center())
-                    # Calculate angle delta between consecutive mouse positions
-                    prev_angle = self._angle_between(self._last_mouse_angle, center)
-                    current_angle = self._angle_between(scene_pos, center)
-                    delta = current_angle - prev_angle
-                    item.setRotation(item.rotation() + delta)
-            self._last_mouse_angle = scene_pos
+                pivot_scene = self.map_widget.world_to_scene(
+                    int(self._rotation_pivot_world.x()),
+                    int(self._rotation_pivot_world.y())
+                )
+                current_angle = self._angle_between(scene_pos, pivot_scene)
+                delta = current_angle - self._last_mouse_angle
+                self._last_mouse_angle = current_angle
+                self._total_delta_so_far += delta
+                # Apply cumulative rotation to each item
+                total_rad = math.radians(self._total_delta_so_far)
+                cos_d = math.cos(total_rad)
+                sin_d = math.sin(total_rad)
+                px = self._rotation_pivot_world.x()
+                py = self._rotation_pivot_world.y()
+                for item, start_wx, start_wy, start_rot in self.rotation_reference_items:
+                    dx = start_wx - px
+                    dy = start_wy - py
+                    item.world_x = int(px + dx * cos_d - dy * sin_d)
+                    item.world_y = int(py + dx * sin_d + dy * cos_d)
+                    new_scene = self.map_widget.world_to_scene(item.world_x, item.world_y)
+                    item.setPos(new_scene)
+                    item.setRotation(start_rot + self._total_delta_so_far)
+                    item._rebuild_scene_geometry()
             event.accept()
             return
 
@@ -84,11 +103,27 @@ class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
             items = self.scene().selectedItems()
             valid_items = [i for i in items if isinstance(i, MapUnitItem)]
             if valid_items:
+                # Snapshot each item's starting position and rotation
+                self.rotation_reference_items = [
+                    (item, item.world_x, item.world_y, item.rotation())
+                    for item in valid_items
+                ]
+                # Compute centroid of all selected items' world positions
+                avg_x = sum(wx for _, wx, _, _ in self.rotation_reference_items) / len(valid_items)
+                avg_y = sum(wy for _, _, wy, _ in self.rotation_reference_items) / len(valid_items)
+                self._rotation_pivot_world = QPointF(avg_x, avg_y)
+                self._total_delta_so_far = 0.0
+                # Draw pivot marker
+                self._create_pivot_marker(self._rotation_pivot_world)
+                # Disable dragging during rotation
+                for item in valid_items:
+                    item.setFlag(QGraphicsItem.ItemIsMovable, False)
+                # Compute initial angle from cursor to pivot
+                pivot_scene = self.map_widget.world_to_scene(int(avg_x), int(avg_y))
+                self._last_mouse_angle = self._angle_between(
+                    self.mapToScene(event.pos()), pivot_scene)
                 self.is_rotating = True
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
-                scene_pos = self.mapToScene(event.pos())
-                self._last_mouse_angle = scene_pos
-                self.rotation_reference_items = valid_items
                 event.accept()
                 return
             else:
@@ -134,7 +169,14 @@ class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
             return
         elif event.button() == Qt.MouseButton.RightButton and self.is_rotating:
             self.is_rotating = False
+            self._remove_pivot_marker()
+            # Restore movable flag on all rotated items
+            for item, _, _, _ in self.rotation_reference_items:
+                item.setFlag(QGraphicsItem.ItemIsMovable, True)
             self.rotation_reference_items.clear()
+            self._rotation_pivot_world = None
+            self._last_mouse_angle = None
+            self._total_delta_so_far = 0.0
             self.unsetCursor()
             event.accept()
             return
@@ -161,6 +203,53 @@ class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
         dx = point2.x() - point1.x()
         dy = point2.y() - point1.y()
         return math.degrees(math.atan2(dx, -dy))  # -dy so 0° = North
+
+    def _create_pivot_marker(self, world_pos: QPointF):
+        """Draw a zoom-invariant crosshair at the pivot point."""
+        scene_pos = self.map_widget.world_to_scene(int(world_pos.x()), int(world_pos.y()))
+        self._pivot_marker = QGraphicsItemGroup()
+        pen = QPen(QColor(255, 255, 255), 2)
+        size = 15
+        h_line = QGraphicsLineItem(-size, 0, size, 0)
+        v_line = QGraphicsLineItem(0, -size, 0, size)
+        h_line.setPen(pen)
+        v_line.setPen(pen)
+        h_line.setPos(scene_pos)
+        v_line.setPos(scene_pos)
+        h_line.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        v_line.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self._pivot_marker.addToGroup(h_line)
+        self._pivot_marker.addToGroup(v_line)
+        circle = QGraphicsEllipseItem(-5, -5, 10, 10)
+        circle.setPen(pen)
+        circle.setBrush(QBrush(QColor(255, 255, 255, 60)))
+        circle.setPos(scene_pos)
+        circle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self._pivot_marker.addToGroup(circle)
+        self._pivot_marker.setZValue(1000)
+        self.scene().addItem(self._pivot_marker)
+
+    def _update_pivot_marker_size(self):
+        """No-op: pivot marker children use ItemIgnoresTransformations so they
+        render at a constant visual size automatically."""
+        pass
+
+    def _remove_pivot_marker(self):
+        if self._pivot_marker is not None:
+            self.scene().removeItem(self._pivot_marker)
+            self._pivot_marker = None
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                   Qt.Key.Key_Up, Qt.Key.Key_Down):
+            if self.map_widget.navigate_selection(key):
+                event.accept()
+                return
+            # No selection or no valid target — still consume to prevent panning
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat("application/x-unit-drop"):
@@ -1024,6 +1113,93 @@ class OOBMapWidget(QWidget):
         if placed_unit is not None:
             self.minimap_scene.clearSelection()
             placed_unit.setSelected(True)
+
+    # ── Arrow-key navigation ──────────────────────────────────────
+
+    def navigate_selection(self, key) -> bool:
+        """Move selection up/down/left/right through the placed-unit hierarchy.
+        Returns True if selection changed, False otherwise.
+        """
+        current = [i for i in self.minimap_scene.selectedItems()
+                   if isinstance(i, MapUnitItem)]
+        if not current:
+            return False
+        current_idx = self._highest_ranked([i.unit_row_index for i in current])
+
+        if key == Qt.Key.Key_Up:
+            new_idx = self._find_parent(current_idx)
+        elif key == Qt.Key.Key_Down:
+            new_idx = self._find_first_child(current_idx)
+        elif key == Qt.Key.Key_Right:
+            new_idx = self._find_next_peer(current_idx)
+        elif key == Qt.Key.Key_Left:
+            new_idx = self._find_prev_peer(current_idx)
+        else:
+            return False
+
+        if new_idx is None or new_idx == current_idx:
+            return False
+        self.select_unit(new_idx)
+        # Center the view on the newly selected unit
+        unit_item = self.placed_by_row.get(new_idx)
+        if unit_item is not None:
+            self.minimap_view.centerOn(unit_item)
+        return True
+
+    def _find_parent(self, row_index: int) -> Optional[int]:
+        hk = self.oob_data.get_hierarchy_key_by_index(row_index)
+        parent_key = self.oob_data.get_parent_key(hk)
+        parent_idx = self.oob_data.get_row_index_by_key(parent_key)
+        if parent_idx is None:
+            return None
+        return parent_idx if parent_idx in self.placed_by_row else None
+
+    def _find_first_child(self, row_index: int) -> Optional[int]:
+        children = self.oob_data._parent_to_children.get(row_index, [])
+        for child_idx in children:
+            if child_idx in self.placed_by_row:
+                return child_idx
+        return None
+
+    def _find_next_peer(self, row_index: int) -> Optional[int]:
+        peers = self._get_peer_indices(row_index)
+        return self._next_placed_peer(peers, row_index, forward=True)
+
+    def _find_prev_peer(self, row_index: int) -> Optional[int]:
+        peers = self._get_peer_indices(row_index)
+        return self._next_placed_peer(peers, row_index, forward=False)
+
+    def _get_peer_indices(self, row_index: int) -> List[int]:
+        hk = self.oob_data.get_hierarchy_key_by_index(row_index)
+        parent_key = self.oob_data.get_parent_key(hk)
+        parent_idx = self.oob_data.get_row_index_by_key(parent_key)
+        if parent_idx is None:
+            return [idx for idx in range(len(self.oob_data.df))
+                    if self.oob_data.get_level(idx) is not None
+                    and idx not in self.oob_data._children_set]
+        return self.oob_data._parent_to_children.get(parent_idx, [])
+
+    def _next_placed_peer(self, peers: List[int], current_idx: int,
+                          forward: bool) -> Optional[int]:
+        placed_peers = [p for p in peers if p in self.placed_by_row]
+        if not placed_peers:
+            return None
+        if current_idx not in placed_peers:
+            return placed_peers[0] if forward else placed_peers[-1]
+        pos = placed_peers.index(current_idx)
+        if forward:
+            return placed_peers[(pos + 1) % len(placed_peers)]
+        else:
+            return placed_peers[(pos - 1) % len(placed_peers)]
+
+    def _highest_ranked(self, row_indices: List[int]) -> int:
+        """Return the row_index with the lowest hierarchy level (most senior).
+        Among units at the same level, the one with the lowest row index wins.
+        """
+        def _rank(idx):
+            level = self.oob_data.get_level(idx)
+            return (level if level is not None else 999, idx)
+        return min(row_indices, key=_rank)
 
     def highlight_unit(self, row_index):
         if row_index is None or self.oob_data is None:
