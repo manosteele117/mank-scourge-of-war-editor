@@ -169,8 +169,17 @@ class OOBData:
         self._invalidate_caches()
         self._build_adjacency_index()
 
+    def _df_sorted_by_hierarchy(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Return df rows sorted by hierarchy key to match tree view order."""
+        keys = np.array(
+            [list(self.get_hierarchy_key_by_index(i)) for i in range(len(df))],
+            dtype=np.int64,
+        )
+        order = np.lexsort(keys.T[::-1])
+        return df.iloc[order].reset_index(drop=True)
+
     def save_csv(self, path: str) -> None:
-        df = self._ensure_df().copy()
+        df = self._df_sorted_by_hierarchy(self._ensure_df().copy())
         if "line_number" in df.columns:
             df = df.drop(columns=["line_number"])
         if self._original_headers:
@@ -185,7 +194,7 @@ class OOBData:
 
     def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None) -> None:
         import os
-        df = self._ensure_df().copy()
+        df = self._df_sorted_by_hierarchy(self._ensure_df().copy())
         if "line_number" in df.columns:
             df = df.drop(columns=["line_number"])
 

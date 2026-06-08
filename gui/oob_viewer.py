@@ -20,6 +20,7 @@ from gui.oob_shared_toolbar import OOBSharedToolbar
 from gui.oob_map_view import OOBMapWidget
 from gui.oob_scenario_tab import ScenarioTab
 from gui.oob_files_tab import FilesTab
+from gui.oob_dropdowns import load_rifles, load_artillery
 
 
 def apply_dark_theme(app: QApplication) -> None:
@@ -247,6 +248,12 @@ class OOBViewer(QMainWindow):
         self.tree.load_templates(enabled_files if enabled_files else None)
         self.tree.load_pools()
 
+        # Load rifles and artillery for dropdown options
+        if self.config.get("rifles"):
+            load_rifles(self.config["rifles"])
+        if self.config.get("artillery"):
+            load_artillery(self.config["artillery"])
+
         if self.config.get("map-ini"):
             self.right_tab_widget.setCurrentWidget(self.map_viewer)
 
@@ -330,6 +337,10 @@ class OOBViewer(QMainWindow):
             self.load_csv(file_path)
         elif config_key == "drills":
             self.map_viewer._load_formations(file_path)
+        elif config_key == "rifles":
+            load_rifles(file_path)
+        elif config_key == "artillery":
+            load_artillery(file_path)
         elif config_key == "map-ini":
             self.map_viewer.load_map_from_ini(file_path)
 
@@ -506,6 +517,7 @@ class OOBViewer(QMainWindow):
     def save_csv(self, path):
         try:
             self.data.save_csv(path)
+            self.load_csv(path)
             QMessageBox.information(
                 self, "Save Successful",
                 f"OOB file saved to:\n{path}")

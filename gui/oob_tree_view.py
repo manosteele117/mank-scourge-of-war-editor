@@ -161,8 +161,8 @@ class OOBTreeWidget(QTreeWidget):
                        for v in df["Experience"].tolist()] if "Experience" in df.columns else [0.0] * n_rows
         formations = [str(v) if v is not None and not pd.isna(v) else ""
                        for v in df["Formation"].tolist()] if "Formation" in df.columns else [""] * n_rows
-        line_nums = [int(v) if v is not None and not pd.isna(v) and str(v).strip() != "" else i + 2
-                     for i, v in enumerate(df["line_number"].tolist())] if "line_number" in df.columns else list(range(2, n_rows + 2))
+        line_nums = [str(int(v)) if v is not None and not pd.isna(v) and str(v).strip() != "" else ""
+                     for v in df["line_number"].tolist()] if "line_number" in df.columns else [""] * n_rows
         is_supply = ["SupplyWagon" in f for f in formations]
 
         # Per-row subtree aggregates via post-order DFS over the adjacency index.

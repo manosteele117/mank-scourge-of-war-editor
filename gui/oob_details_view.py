@@ -1,8 +1,10 @@
 from PySide6.QtWidgets import (
-    QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QComboBox,
+    QLineEdit,
 )
 from PySide6.QtCore import Qt, Signal
 from core.oob_model import OOBData
+from gui.oob_dropdowns import has_dropdown, get_formation_options, get_weapon_options
 import pandas as pd
 
 
@@ -15,6 +17,7 @@ class OOBDetailsWidget(QWidget):
         super().__init__(parent)
         self.data = data
         self.current_row_index = None
+        self._widgets: dict[int, QWidget] = {}
 
         self.details_table = QTableWidget()
         self.details_table.setColumnCount(2)
@@ -43,10 +46,41 @@ class OOBDetailsWidget(QWidget):
                 color: #e0e0e0;
                 border: 1px solid #333333;
             }
+            QLineEdit {
+                background-color: #161616;
+                color: #e0e0e0;
+                border: 1px solid #333333;
+                padding: 1px 4px;
+                selection-background-color: #336699;
+            }
+            QComboBox {
+                background-color: #161616;
+                color: #e0e0e0;
+                border: 1px solid #333333;
+                padding: 1px 4px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top left;
+                width: 16px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1a1a1a;
+                color: #e0e0e0;
+                selection-background-color: #333333;
+                border: 1px solid #444444;
+            }
         """)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.details_table)
         self.setLayout(layout)
+
+    def _get_combo_options(self, column: str, row_dict: dict) -> list[str]:
+        if column == "Formation":
+            return get_formation_options(row_dict)
+        elif column == "Weapon":
+            return get_weapon_options(row_dict)
+        return []
 
     def populate(self, row_index: int) -> None:
         if self.data.df is None or row_index is None:
@@ -56,7 +90,9 @@ class OOBDetailsWidget(QWidget):
         self.current_row_index = row_index
         row = self.data.df.iloc[row_index]
         columns = list(row.index)
+        row_dict = row.to_dict()
 
+        self._widgets.clear()
         self.details_table.blockSignals(True)
         try:
             self.details_table.setRowCount(len(columns))
@@ -67,15 +103,47 @@ class OOBDetailsWidget(QWidget):
 
                 val = row[column]
                 display = "" if pd.isna(val) else str(val)
-                value_item = QTableWidgetItem(display)
-                self.details_table.setItem(i, 1, value_item)
+
+                if has_dropdown(column):
+                    options = self._get_combo_options(column, row_dict)
+                    if options:
+                        combo = QComboBox()
+                        combo.setEditable(True)
+                        combo.addItems(options)
+                        combo.setCurrentText(display)
+                        combo.setProperty("field_name", column)
+                        combo.currentTextChanged.connect(
+                            lambda text, c=combo: self._on_widget_changed(c, text)
+                        )
+                        self.details_table.setCellWidget(i, 1, combo)
+                        self._widgets[i] = combo
+                        continue
+
+                edit = QLineEdit(display)
+                edit.setProperty("field_name", column)
+                edit.editingFinished.connect(
+                    lambda e=edit: self._on_widget_changed(e, e.text())
+                )
+                self.details_table.setCellWidget(i, 1, edit)
+                self._widgets[i] = edit
             self.details_table.resizeRowsToContents()
             self.details_table.resizeColumnToContents(0)
         finally:
             self.details_table.blockSignals(False)
 
+    def _on_widget_changed(self, widget, text: str) -> None:
+        if self.current_row_index is None or self.data.df is None:
+            return
+        field_name = widget.property("field_name")
+        if not field_name:
+            return
+        new_value = text if text else pd.NA
+        self.data.set_cell(self.current_row_index, field_name, new_value)
+        self.detail_changed.emit()
+
     def clear(self) -> None:
         self.current_row_index = None
+        self._widgets.clear()
         self.details_table.clearContents()
         self.details_table.setRowCount(0)
 
@@ -86,6 +154,9 @@ class OOBDetailsWidget(QWidget):
         row_in_table = item.row()
         col = item.column()
         if col != 1:
+            return
+
+        if row_in_table in self._widgets:
             return
 
         field_name = self.details_table.item(row_in_table, 0).text()
