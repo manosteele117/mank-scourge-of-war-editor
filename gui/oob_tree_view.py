@@ -1,13 +1,15 @@
 import json
 import os
+import random
 from typing import Dict, List, Tuple
 from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenu, QMessageBox, QHeaderView, QAbstractItemView,
-    QFileDialog, QApplication,
+    QFileDialog, QApplication, QDialog,
 )
 from PySide6.QtCore import Qt, Signal, QMimeData, QByteArray
 from PySide6.QtGui import QBrush, QColor, QDrag, QFont, QDragEnterEvent, QDragMoveEvent, QDropEvent
 from core.oob_model import OOBData
+from gui.oob_generate_dialog import GenerateSubtreeDialog, GenerateSubtreeConfirmDialog
 from constants import TREE_SIDE_1_BG, TREE_SIDE_2_BG, TREE_INDICATOR_PLACED, TREE_INDICATOR_UNPLACED
 import pandas as pd
 import traceback
@@ -245,6 +247,7 @@ class OOBTreeWidget(QTreeWidget):
 
         for col in range(self.columnCount()):
             self.resizeColumnToContents(col)
+        self.setColumnWidth(1, self.columnWidth(1) + 24) # Hardcode expand the 'Level' column.
 
         self._expand_initial_levels()
         self._total_unit_count = len(self.data.df)
@@ -746,6 +749,10 @@ class OOBTreeWidget(QTreeWidget):
             # Save as Template
             menu.addAction("Save as Template", self.action_save_as_template)
 
+            # Generate Subtree (not for level 6)
+            if level is not None and level < 6:
+                menu.addAction("Generate Subtree", self.action_generate_subtree)
+
         menu.addSeparator()
         menu.addAction("Copy CSV Format to Clipboard", self.action_copy_csv_format)
 
@@ -938,6 +945,309 @@ class OOBTreeWidget(QTreeWidget):
                                  f"Failed to insert template:\n\n"
                                  f"Error: {type(e).__name__}: {str(e)}\n\n"
                                  f"Stack trace:\n{traceback.format_exc()}")
+
+    def action_generate_subtree(self) -> None:
+        """Generate a subtree of units under the selected unit."""
+        from gui.oob_generate_dialog import (
+            GenerateSubtreeConfirmDialog, RESULT_BACK, RESULT_CONFIRM, RESULT_REGENERATE,
+        )
+
+        items = self.selectedItems()
+        if not items:
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
+            return
+
+        from constants import LEVEL_NAMES
+        level = self.data.get_level(row_index)
+
+        # Parent node info (constant throughout the flow)
+        info = self.data.unit_info(row_index)
+        hierarchy_key = self.data.get_hierarchy_key_by_index(row_index)
+        level_info_str = self.data.get_hierarchy_level_name_and_index(hierarchy_key)
+        row = self.data.df.iloc[row_index]
+        exp_raw = row.get("Experience", 0)
+        parent_exp = float(exp_raw) if exp_raw is not None and not pd.isna(exp_raw) else 0.0
+        parent_node = {
+            "name": info.name,
+            "level": level,
+            "level_info": level_info_str,
+            "head_count": info.head_count,
+            "experience": parent_exp,
+            "side": info.side,
+        }
+
+        config = None
+
+        while True:
+            # Phase 1: Settings dialog (only on first entry or after Back)
+            if config is None:
+                dialog = GenerateSubtreeDialog(level, self._templates, self)
+                if dialog.exec() != QDialog.Accepted:
+                    return
+                config = dialog.get_config()
+
+            # Phase 2: Build preview with resolved modifiers
+            try:
+                preview_nodes, counts_by_level, total_head = self._build_preview_tree(config)
+            except Exception as e:
+                QMessageBox.critical(self, "Preview Error",
+                                     f"Failed to build preview:\n\n"
+                                     f"Error: {type(e).__name__}: {str(e)}\n\n"
+                                     f"Stack trace:\n{traceback.format_exc()}")
+                return
+
+            if not preview_nodes:
+                QMessageBox.information(self, "Generate Subtree", "Nothing to generate.")
+                return
+
+            # Build settings summary text
+            settings_lines = [f"Selected Parent: {items[0].text(0)}", "", "Settings:"]
+            for cfg in config:
+                if cfg["min"] == 0 and cfg["max"] == 0:
+                    continue
+                lvl = cfg["level"]
+                lname = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
+                tname = cfg["template"]["name"] if cfg["template"] else "(none)"
+                if cfg["min"] == cfg["max"]:
+                    settings_lines.append(f"  Lvl {lvl} {lname}s: {cfg['min']} x {tname}")
+                else:
+                    settings_lines.append(f"  Lvl {lvl} {lname}s: {cfg['min']}-{cfg['max']} x {tname}")
+            settings_text = "\n".join(settings_lines)
+
+            # Build unit count summary
+            count_parts = []
+            for lvl in sorted(counts_by_level.keys()):
+                lname = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
+                count_parts.append(f"{counts_by_level[lvl]} {lname}{'s' if counts_by_level[lvl] != 1 else ''}")
+            summary_text = f"Created {', '.join(count_parts)}. Total of {total_head:,} men."
+
+            # Phase 3: Confirmation dialog with preview tree
+            confirm = GenerateSubtreeConfirmDialog(
+                settings_text, summary_text, preview_nodes, parent_node, self)
+            result = confirm.exec()
+
+            if result == RESULT_CONFIRM:
+                # Phase 4: Actually generate using the exact preview rows
+                try:
+                    parent_key = self.data.get_hierarchy_key_by_index(row_index)
+                    self._insert_preview_tree(row_index, parent_key, preview_nodes)
+                    self.data._invalidate_caches()
+                    self.data._build_adjacency_index()
+                    self._expanded_keys.add(parent_key)
+                    self.populate_with_expansion()
+                    self.select_unit(row_index)
+                    self.unit_added.emit()
+                except Exception as e:
+                    QMessageBox.critical(self, "Generate Subtree Error",
+                                         f"Failed to generate subtree:\n\n"
+                                         f"Error: {type(e).__name__}: {str(e)}\n\n"
+                                         f"Stack trace:\n{traceback.format_exc()}")
+                return
+
+            elif result == RESULT_REGENERATE:
+                # Re-run preview with same config (re-roll random counts)
+                continue
+
+            elif result == RESULT_BACK:
+                # Return to settings dialog
+                config = None
+                continue
+
+            else:
+                # Dialog was closed (X button) — exit
+                return
+
+    def _build_preview_tree(self, config: list[dict]) -> tuple:
+        """Build preview nodes with resolved modifiers using synthetic parent indices.
+
+        Each node stores its fully resolved row_dict so that the exact same
+        data is inserted on confirm (no re-resolution of modifiers).
+
+        Returns (top_level_nodes, counts_by_level, total_head_count).
+        """
+        from constants import HIERARCHY_COLS, LEVEL_NAMES, INT_COLUMNS
+        synthetic_parent = -1
+        counts_by_level: dict[int, int] = {}
+        total_head = 0
+
+        def build_level(parent_idx: int, cfg_idx: int) -> tuple[list[dict], int]:
+            nonlocal synthetic_parent
+            if cfg_idx >= len(config):
+                return [], 0
+            cfg = config[cfg_idx]
+            if cfg["min"] == 0 and cfg["max"] == 0:
+                return [], 0
+            template = cfg["template"]
+            if template is None:
+                return [], 0
+
+            lvl = cfg["level"]
+            count = random.randint(cfg["min"], cfg["max"])
+            counts_by_level[lvl] = counts_by_level.get(lvl, 0) + count
+            nodes = []
+            level_head = 0
+
+            for _ in range(count):
+                # Copy template row
+                columns = list(self.data.df.columns) if self.data.df is not None else []
+                row_dict = {col: template["row"].get(col, "") for col in columns}
+
+                # Set hierarchy columns for the preview row
+                source_level = template["level"]
+                for i, hcol in enumerate(HIERARCHY_COLS):
+                    if i == source_level - 1:
+                        row_dict[hcol] = 1
+                    else:
+                        row_dict[hcol] = 0
+
+                # Resolve modifiers using synthetic parent index
+                self.data._resolve_modifiers(row_dict, parent_idx)
+
+                # Convert INT_COLUMNS
+                for col in INT_COLUMNS:
+                    if col in row_dict:
+                        try:
+                            row_dict[col] = int(float(str(row_dict[col]))) if str(row_dict[col]).strip() else 0
+                        except (ValueError, TypeError):
+                            row_dict[col] = 0
+
+                # Extract display values
+                name = str(row_dict.get("NAME1", "") or row_dict.get("Name", "") or "?")
+                hc = row_dict.get("Head Count", 0)
+                exp = row_dict.get("Experience", 0)
+                side_raw = row_dict.get("SIDE 1", 0)
+                try:
+                    side = int(side_raw)
+                except (ValueError, TypeError):
+                    side = 0
+
+                level_info_str = f"{LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else '?'} (1)"
+
+                node = {
+                    "name": name,
+                    "level": lvl,
+                    "level_info": level_info_str,
+                    "head_count": hc,
+                    "experience": exp,
+                    "side": side,
+                    "resolved_row": row_dict,
+                    "children": [],
+                }
+
+                # Recurse for next level
+                synthetic_parent -= 1
+                child_nodes, child_head = build_level(synthetic_parent, cfg_idx + 1)
+                node["children"] = child_nodes
+
+                level_head += hc + child_head
+                nodes.append(node)
+
+            return nodes, level_head
+
+        top_nodes, total_head = build_level(synthetic_parent, 0)
+        self._compute_preview_aggregates(top_nodes)
+        return top_nodes, counts_by_level, total_head
+
+    def _compute_preview_aggregates(self, nodes: list[dict]) -> None:
+        """Compute subtree_strength and subtree_experience for each preview node."""
+        for node in nodes:
+            self._compute_preview_aggregates(node.get("children", []))
+            hc = node.get("head_count", 0)
+            child_strength = sum(c.get("subtree_strength", c.get("head_count", 0))
+                                for c in node.get("children", []))
+            node["subtree_strength"] = hc + child_strength
+
+            children = node.get("children", [])
+            if not children:
+                node["subtree_experience"] = node.get("experience", 0.0)
+            else:
+                child_exps = [c.get("subtree_experience", c.get("experience", 0.0))
+                              for c in children]
+                if child_exps:
+                    node["subtree_experience"] = sum(child_exps) / len(child_exps)
+                else:
+                    node["subtree_experience"] = node.get("experience", 0.0)
+
+    def _insert_preview_tree(self, parent_row_index: int, parent_key: tuple,
+                              nodes: list[dict]) -> None:
+        """Insert the exact resolved rows from the preview into the DataFrame.
+
+        Walks the preview tree top-down, setting hierarchy keys based on
+        the real parent key and child index. Each node's 'resolved_row'
+        is the exact dict that was shown in the preview.
+        Offsets l_value past any existing children at the same level.
+        """
+        from constants import HIERARCHY_COLS
+
+        def _max_existing_l_value(parent_idx: int, level: int) -> int:
+            """Find the max hierarchy value at *level* among existing children."""
+            max_val = 0
+            for child_idx in self.data._parent_to_children.get(parent_idx, []):
+                child_level = self.data.get_level(child_idx)
+                if child_level == level:
+                    hk = self.data.get_hierarchy_key_by_index(child_idx)
+                    val = hk[level - 1]
+                    if val > max_val:
+                        max_val = val
+            return max_val
+
+        if not nodes:
+            return
+
+        # Find the level of these nodes and offset past existing children
+        first_level = nodes[0]["level"]
+        existing_max = _max_existing_l_value(parent_row_index, first_level)
+        l_value = existing_max
+
+        for node in nodes:
+            l_value += 1
+            resolved_row = dict(node["resolved_row"])
+
+            source_level = node["level"]
+            for i, hcol in enumerate(HIERARCHY_COLS):
+                if i < source_level - 1:
+                    resolved_row[hcol] = parent_key[i] if i < len(parent_key) else 0
+                elif i == source_level - 1:
+                    resolved_row[hcol] = l_value
+                else:
+                    resolved_row[hcol] = 0
+
+            resolved_row["line_number"] = ""
+
+            # Assign unique ID
+            template_id = str(resolved_row.get("ID", "")).strip()
+            if template_id and "ID" in self.data.df.columns:
+                used_indices = set()
+                for val in self.data.df["ID"].dropna():
+                    val_str = str(val).strip()
+                    if val_str.startswith(template_id) and val_str != template_id:
+                        suffix = val_str[len(template_id):]
+                        try:
+                            used_indices.add(int(suffix))
+                        except ValueError:
+                            pass
+                idx = 1
+                while idx in used_indices:
+                    idx += 1
+                resolved_row["ID"] = f"{template_id}{idx}"
+
+            # Append to DataFrame
+            new_df = pd.DataFrame([resolved_row])
+            for col in list(new_df.columns):
+                if col in HIERARCHY_COLS:
+                    new_df[col] = pd.to_numeric(new_df[col], errors="coerce").astype("Int64")
+            self.data.df = pd.concat([self.data.df, new_df], ignore_index=True)
+            new_row_idx = len(self.data.df) - 1
+
+            # Build this node's key for its children
+            child_key = list(parent_key[:source_level - 1]) + [l_value] + [0] * (6 - source_level)
+            child_key_tuple = tuple(child_key)
+
+            # Recurse into children
+            if node.get("children"):
+                self._insert_preview_tree(new_row_idx, child_key_tuple, node["children"])
 
     def action_save_as_template(self) -> None:
         """Save the selected unit as a user template."""

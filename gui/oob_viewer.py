@@ -558,8 +558,10 @@ class OOBViewer(QMainWindow):
     def _on_unit_added(self):
         self._set_validation_state("unknown")
 
-    def _on_detail_edited(self):
+    def _on_detail_edited(self, field_name: str = ""):
         self._set_validation_state("unknown")
+        if field_name in ("Experience", "Head Count"):
+            self.tree.populate_with_expansion()
 
     def _on_load_templates(self):
         templates_dir = os.path.join(

@@ -1,17 +1,22 @@
 from PySide6.QtWidgets import (
     QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QComboBox,
-    QLineEdit,
+    QLineEdit, QLabel,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QEvent, QPoint
 from core.oob_model import OOBData
 from gui.oob_dropdowns import has_dropdown, get_formation_options, get_weapon_options
 import pandas as pd
+
+DISCOURAGED_FIELDS = {
+    "line_number", "SIDE 1", "ARMY 2", "CORPS 3",
+    "DIV 4", "BGDE 5", "BTN 6",
+}
 
 
 class OOBDetailsWidget(QWidget):
     """Widget for displaying and editing unit detail information."""
 
-    detail_changed = Signal()
+    detail_changed = Signal(str)
 
     def __init__(self, data: OOBData, parent=None):
         super().__init__(parent)
@@ -75,6 +80,15 @@ class OOBDetailsWidget(QWidget):
         layout.addWidget(self.details_table)
         self.setLayout(layout)
 
+        self._warning_label = QLabel()
+        self._warning_label.setWordWrap(True)
+        self._warning_label.setMaximumWidth(350)
+        self._warning_label.setStyleSheet(
+            "background: #2a2a2a; color: #c0a040; font-size: 10px;"
+            "padding: 4px 8px; border: 1px solid #555; border-radius: 3px;"
+        )
+        self._warning_label.hide()
+
     def _get_combo_options(self, column: str, row_dict: dict) -> list[str]:
         if column == "Formation":
             return get_formation_options(row_dict)
@@ -82,7 +96,33 @@ class OOBDetailsWidget(QWidget):
             return get_weapon_options(row_dict)
         return []
 
+    def eventFilter(self, obj, event):
+        if (event.type() == QEvent.FocusIn
+                and obj.property("discouraged")):
+            self._show_warning(obj)
+        elif (event.type() == QEvent.FocusOut
+                and obj.property("discouraged")):
+            self._warning_label.hide()
+        return super().eventFilter(obj, event)
+
+    def _show_warning(self, edit: QLineEdit) -> None:
+        top = self.window()
+        if self._warning_label.parent() != top:
+            self._warning_label.setParent(top)
+        pos = edit.mapToGlobal(QPoint(0, 0))
+        parent_pos = top.mapFromGlobal(pos)
+        self._warning_label.setText(
+            "This field is managed by this application, and should not be edited "
+            "by hand, use the cut/paste/drag/insert commands to achieve the same result."
+        )
+        self._warning_label.adjustSize()
+        label_y = parent_pos.y() - self._warning_label.sizeHint().height()
+        self._warning_label.move(parent_pos.x(), label_y)
+        self._warning_label.show()
+        self._warning_label.raise_()
+
     def populate(self, row_index: int) -> None:
+        self._warning_label.hide()
         if self.data.df is None or row_index is None:
             self.clear()
             return
@@ -121,6 +161,9 @@ class OOBDetailsWidget(QWidget):
 
                 edit = QLineEdit(display)
                 edit.setProperty("field_name", column)
+                if column in DISCOURAGED_FIELDS:
+                    edit.installEventFilter(self)
+                    edit.setProperty("discouraged", True)
                 edit.editingFinished.connect(
                     lambda e=edit: self._on_widget_changed(e, e.text())
                 )
@@ -139,10 +182,11 @@ class OOBDetailsWidget(QWidget):
             return
         new_value = text if text else pd.NA
         self.data.set_cell(self.current_row_index, field_name, new_value)
-        self.detail_changed.emit()
+        self.detail_changed.emit(field_name)
 
     def clear(self) -> None:
         self.current_row_index = None
+        self._warning_label.hide()
         self._widgets.clear()
         self.details_table.clearContents()
         self.details_table.setRowCount(0)
@@ -170,4 +214,4 @@ class OOBDetailsWidget(QWidget):
                 except ValueError:
                     pass
             self.data.set_cell(self.current_row_index, field_name, new_value)
-            self.detail_changed.emit()
+            self.detail_changed.emit(field_name)

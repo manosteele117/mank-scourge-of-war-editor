@@ -312,6 +312,17 @@ class OOBData:
         return self._ensure_df().iloc[row_index]
 
     def set_cell(self, row_index: int, column: str, value: Any) -> None:
+        import numpy as np
+        col_dtype = self._ensure_df()[column].dtype
+        if value is not pd.NA and value is not None and str(value).strip() != "":
+            try:
+                kind = col_dtype.kind
+            except AttributeError:
+                kind = None
+            if kind in ("i", "u"):  # signed or unsigned integer
+                value = int(float(value))
+            elif kind == "f":  # float
+                value = float(value)
         self._ensure_df().at[row_index, column] = value
         self._invalidate_caches()
 
