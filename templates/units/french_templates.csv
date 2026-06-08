@@ -1,0 +1,30 @@
+Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
+, Regimental Infantry
+French Battalion Default,OOB_MNK_FR_INF_REG_,{cycle:1|1|1|2|2|2|3|3|3}e Regiment / {cycle:1er|2e|3e} Bataillon,,,,,,,X,UGLB_FR_Inf_1,(1-0),IDS_ARSN_1777_Charleville_France,40,GFX_French1,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+
+, Cavalry Squadrons
+French Cav Squadron Default,OOB_MNK_FR_Cav_SQD_,{seq:fr_cav} Escadron,,,,,,,X,UGLB_FR_Cav_2,(1-0),IDS_ARSN_Swords_and_Pistols,40,GFX_Cav_French_Chasseurs,,DRIL_Lvl6_Cav_Column,{range:100-200},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+
+, Artillery Pieces
+French Artillery Default,OOB_MNK_FR_ART_BAT_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section,,,,,,,X,UGLB_FR_Art_Limbered_2_FA,(10-7),IDS_ARSN_6lb_Cannon_FR,4,GFX_Art_French,,DRIL_Lvl6_Art_March,30,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+
+, Brigade Commanders
+French Infantry Brigade Commander,OOB_MNK_FR_BGD_CMD_,Maréchal de Camp {pool:commanders_french},Brigade {seq:fr_brigade},,,,,X,,UGLB_FR_Inf_Cdr_Brig,(0-8),,,GFX_CO_France,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Divisional Commanders
+French Infantry Division Commander,OOB_MNK_FR_DIV_CMD_,lieutenant-général {pool:commanders_french},{seq:fr_div} Division,,,,X,,,UGLB_FR_Inf_Cdr_Div,(7-6),,,GFX_CO_France,,DRIL_Lvl4_Inf_Div_Col_Btn_FR,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Corps Commanders
+French Corps Commander,OOB_MNK_FR_COR_CMD_,lieutenant-général {pool:commanders_french},{seq:fr_corps} Corps d'Armée,,,X,,,,UGLB_FR_Inf_Cdr_Corps,(0-3),,,GFX_CO_France,,DRIL_Lvl3_Inf_Res_Corps_FR,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Army Commanders
+French Army Commander,OOB_MNK_FR_ARM_CMD_,{pool:commanders_french},Armée {pick:du Nord|des Ardennes|de la Mosellle},,X,,,,,UGLB_FR_Inf_Cdr_Army_Napoleon,(0-1),,,GFX_CO_France,,DRIL_Lvl3_Inf_Res_Corps_FR,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Side Commanders
+French Side Commander,OOB_MNK_FR_SIDE_CMD_,{pool:commanders_french},Armée {pick:du Nord|des Ardennes|de la Mosellle},X,,,,,,UGLB_FR_Inf_Cdr_Army_Napoleon,(0-1),,,GFX_CO_France,,DRIL_Lvl3_Inf_Res_Corps_FR,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Courier
+French Courier,OOB_MNK_FR_Courier,Courrier Français,,,,X,,,,C_Courier,(8-7),,,GFX_CO_Cav_French,,DRIL_SupplyWagon,10,,,,,,9,9,9,9,9,9,9,9,9,9,9
+
+, Ammo Wagon
+French Ammo Wagon,OOB_MNK_FR_Wagon,Escadron du Train,,,,,,X,,UGLB_FR_Wagon,(8-7),,50000,GFX_CO_Art_French,,DRIL_SupplyWagon,10,,,,,,9,9,9,9,9,9,9,9,9,9,9

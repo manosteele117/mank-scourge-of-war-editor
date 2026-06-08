@@ -357,6 +357,17 @@ class OOBData:
                 break
         return tuple(key)
 
+    def is_orphaned(self, row_index: int) -> bool:
+        """Check if a unit has no parent row in the tree (orphaned)."""
+        self._ensure_built()
+        key = self.get_hierarchy_key_by_index(row_index)
+        parent_key = self.get_parent_key(key)
+        # A unit is orphaned if all positions in its key are 0 (side level)
+        # or if its parent key doesn't resolve to any existing row
+        if all(v == 0 for v in key):
+            return True
+        return self.get_row_index_by_key(parent_key) is None
+
     def get_hierarchy_level_name_and_index(self, hierarchy_key: Tuple[int, ...]) -> str:
         for i in range(len(hierarchy_key) - 1, -1, -1):
             if hierarchy_key[i] != 0:
@@ -618,7 +629,8 @@ class OOBData:
 
     def reparent_unit(self, row_index: Optional[int], target_row_index: int,
                       peer_drop: bool, new_row_data: Optional[Dict[str, Any]] = None,
-                      source_level: Optional[int] = None) -> Any:
+                      source_level: Optional[int] = None,
+                      parent_drop: bool = False) -> Any:
         """Reparent a unit subtree OR insert a new unit at a target location.
 
         This method serves two purposes:
@@ -630,8 +642,11 @@ class OOBData:
         Placement rules (same for both modes):
         - peer_drop=True: target is at the same level; insert AFTER the target
           under the target's parent, renumbering siblings as needed.
-        - peer_drop=False: target is one level above; insert as the last child
-          of the target.
+        - peer_drop=False, parent_drop=False: target is one level above;
+          insert as the last child of the target.
+        - parent_drop=True: target is one level below; insert a new parent
+          ABOVE the target. Target becomes a child of the new parent.
+          Only allowed when target level > 1.
 
         Args:
             row_index: The unit to move (its full subtree follows), or None
@@ -641,7 +656,8 @@ class OOBData:
             new_row_data: Column dict for the new row (insert mode only).
             source_level: The level of the unit being inserted (insert mode).
                 For peer drops, equals target level. For child drops, equals
-                target level + 1.
+                target level + 1. For parent drops, equals target level - 1.
+            parent_drop: If True, insert a new parent above the target.
 
         Returns the new row index (insert mode) or True/False (move mode).
         """
@@ -654,10 +670,19 @@ class OOBData:
         if new_row_data is not None:
             if source_level is None:
                 return False
-            if peer_drop and source_level != target_level:
-                return False
-            if not peer_drop and source_level != target_level + 1:
-                return False
+            if parent_drop:
+                if source_level != target_level - 1:
+                    return False
+                if target_level <= 1:
+                    return False
+                if not self.is_orphaned(target_row_index):
+                    return False
+            elif peer_drop:
+                if source_level != target_level:
+                    return False
+            else:
+                if source_level != target_level + 1:
+                    return False
         else:
             # Move mode: validate source
             if row_index is None:
@@ -691,6 +716,13 @@ class OOBData:
                 existing_val = k[source_level - 1]
                 if existing_val >= new_l_value:
                     self.df.at[i, HIERARCHY_COLS[source_level - 1]] = existing_val + 1
+        elif parent_drop and new_row_data is not None:
+            # Parent drop (orphaned unit only): new parent goes above the target.
+            # Use the target's own parent-level key value to create the parent
+            # it never had.
+            target_key = self.get_hierarchy_key_by_index(target_row_index)
+            new_l_value = target_key[source_level - 1]
+            new_parent_key = [0] * (source_level - 1) + [new_l_value] + [0] * (6 - source_level)
         else:
             new_parent_key = self.get_hierarchy_key_by_index(target_row_index)
             existing_indices = []
@@ -716,6 +748,8 @@ class OOBData:
                 actual_parent = self.get_row_index_by_key(new_parent_key)
                 if actual_parent is None:
                     actual_parent = target_row_index
+            elif parent_drop:
+                actual_parent = target_row_index
             else:
                 actual_parent = target_row_index
 
@@ -743,11 +777,44 @@ class OOBData:
             for col in INT_COLUMNS:
                 if col in new_df.columns:
                     new_df[col] = pd.to_numeric(new_df[col], errors="coerce").astype("Int64")
-            new_row_idx = len(self.df)
-            self.df = pd.concat([self.df, new_df], ignore_index=True)
-            self._invalidate_caches()
-            self._build_adjacency_index()
-            return new_row_idx
+
+            if parent_drop:
+                # Collect target's subtree BEFORE insertion (indices will shift)
+                subtree_rows = self._collect_subtree_rows(target_row_index)
+                # Remove target from subtree set — we handle it separately
+                subtree_rows.discard(target_row_index)
+
+                # Insert new parent row BEFORE the target
+                before = self.df.iloc[:target_row_index]
+                after = self.df.iloc[target_row_index:]
+                self.df = pd.concat([before, new_df, after], ignore_index=True)
+
+                # New parent is at target_row_index
+                # Target shifted to target_row_index + 1
+                new_target_idx = target_row_index + 1
+
+                # Target becomes first child of new parent: L=1 at its level
+                target_new_key = list(new_parent_key[:target_level - 1]) + [1] + [0] * (6 - target_level + 1)
+                for i, hcol in enumerate(HIERARCHY_COLS):
+                    self.df.at[new_target_idx, hcol] = target_new_key[i]
+
+                # Update descendants: replace old target prefix with new target prefix
+                for old_idx in subtree_rows:
+                    new_idx = old_idx + 1  # Shifted by insertion
+                    old_key = [self.df.at[new_idx, hcol] for hcol in HIERARCHY_COLS]
+                    new_key = list(target_new_key[:target_level]) + list(old_key[target_level:])
+                    for i, hcol in enumerate(HIERARCHY_COLS):
+                        self.df.at[new_idx, hcol] = new_key[i]
+
+                self._invalidate_caches()
+                self._build_adjacency_index()
+                return target_row_index  # Return new parent's index
+            else:
+                new_row_idx = len(self.df)
+                self.df = pd.concat([self.df, new_df], ignore_index=True)
+                self._invalidate_caches()
+                self._build_adjacency_index()
+                return new_row_idx
         else:
             # Move mode: rewrite hierarchy keys for the entire subtree
             subtree_rows = self._collect_subtree_rows(row_index)

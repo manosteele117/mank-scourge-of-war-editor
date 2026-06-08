@@ -1,0 +1,24 @@
+Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
+, Regimental Infantry
+Confederate Regiment Default,OOB_MNK_C_INF_REG_,{rangeord:1-60} {pool:states_confederate},,,,,,,X,UGLB_CSA_Inf_2,(1-0),IDS_ARSN_1854_Lorenz_Austria,60,GFX_CS_Arkansas3rd,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+
+, Brigade Commanders
+Confederate Infantry Brigade Commander,OOB_MNK_C_BGD_CMD_,Brigadier General {pool:commanders_american},Brigade {seq:c_brigade},,,,,X,,UGLB_CSA_Inf_Cdr_Brig,(0-1),,,GFX_CS_GeorgiaState,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Divisional Commanders
+Confederate Infantry Division Commander,OOB_MNK_C_DIV_CMD_,Brigadier General {pool:commanders_american},{seq:c_div} Division,,,,X,,,UGLB_CSA_Inf_Cdr_Div,(5-0),,,GFX_CS_3rdBunting_Div,,DRIL_Lvl4_Inf_LinewithReserves,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Corps Commanders
+Confederate Corps Commander,OOB_MNK_C_COR_CMD_,Lieutenant General {pool:commanders_american},{seq:c_corps} Corps,,,X,,,,UGLB_CSA_Inf_Cdr_Corps,(0-0),,,GFX_CS_3rdBunting_Corps,,DRIL_Lvl4_Inf_LinewithReserves,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Army Commanders
+Confederate Army Commander,OOB_MNK_C_ARM_CMD_,General {pool:commanders_american},Army of Northern Virginia,,X,,,,,UGLB_CSA_Inf_Cdr_Army,(0-0),,,GFX_CS_HQ_Lee,,DRIL_Lvl4_Inf_LinewithReserves,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Side Commanders
+Confederate Side Commander,OOB_MNK_C_SIDE_CMD_,General {pool:commanders_american},Army of Northern Virginia,X,,,,,,UGLB_CSA_Inf_Cdr_Army,(0-0),,,GFX_CS_HQ_Lee,,DRIL_Lvl4_Inf_LinewithReserves,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+
+, Courier
+Confederate Courier,OOB_MNK_C_Courier,Confederate Courier,,,,X,,,,C_Courier,(1-0),,0,GFX_CS_ArtilleryVa,,DRIL_SupplyWagon,10,,,,,,9,9,9,9,9,9,9,9,9,9,9
+
+, Ammo Wagon
+Confederate Ammo Wagon,OOB_MNK_C_Wagon,Ordnance Supply Wagon,,,,,,X,,UGLB_CSA_Wagon,(1-0),,50000,GFX_CS_ArtilleryVaCO,,DRIL_SupplyWagon,10,,,,,,9,9,9,9,9,9,9,9,9,9,9

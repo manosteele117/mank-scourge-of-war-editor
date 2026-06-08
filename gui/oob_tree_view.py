@@ -47,6 +47,7 @@ class OOBTreeWidget(QTreeWidget):
         self._cut_row_indices: set = set()
         self._cut_top_level_rows: set = set()
         self._templates: list = []
+        self._enabled_template_files: set = set()  # empty = all enabled
         self._templates_dir: str = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "templates", "units")
@@ -368,9 +369,19 @@ class OOBTreeWidget(QTreeWidget):
         self._placement_filter = mode
         self.refresh_indicators_and_visibility()
 
-    def load_templates(self) -> None:
-        """Load or reload all template units from the templates directory."""
-        self._templates = self.data.load_templates(self._templates_dir)
+    def load_templates(self, enabled_files: set = None) -> None:
+        """Load or reload all template units from the templates directory.
+
+        Args:
+            enabled_files: Set of file paths to include. If None or empty,
+                           all templates are included.
+        """
+        all_templates = self.data.load_templates(self._templates_dir)
+        if enabled_files:
+            self._templates = [t for t in all_templates
+                               if t["file"] in enabled_files]
+        else:
+            self._templates = all_templates
 
     def load_pools(self) -> None:
         """Load name pools from the pools directory."""
@@ -688,20 +699,33 @@ class OOBTreeWidget(QTreeWidget):
             if self._templates and level is not None:
                 peer_level = level       # same level = peer
                 child_level = level + 1  # one deeper = child
+                parent_level = level - 1  # one shallower = parent
 
                 peer_templates = [t for t in self._templates if t["level"] == peer_level]
                 child_templates = [t for t in self._templates if t["level"] == child_level]
+                # Parent only available for orphaned units with level > 1
+                is_orphaned = self.data.is_orphaned(row_index)
+                parent_templates = [t for t in self._templates if t["level"] == parent_level] if is_orphaned and level > 1 else []
                 # Level 6 can only have peers, no children
                 if level == 6:
                     child_templates = []
 
                 has_peer = len(peer_templates) > 0
                 has_child = len(child_templates) > 0
+                has_parent = len(parent_templates) > 0
 
                 insert_menu = menu.addMenu("Insert Template")
-                if not has_peer and not has_child:
+                if not has_peer and not has_child and not has_parent:
                     insert_menu.setEnabled(False)
                 else:
+                    if has_parent:
+                        parent_menu = insert_menu.addMenu(f"Lvl {parent_level} (parent)")
+                        for t in sorted(parent_templates, key=lambda x: x["name"]):
+                            action = parent_menu.addAction(t["name"])
+                            action.setData(json.dumps({
+                                "file": t["file"], "id": t["id"],
+                                "level": t["level"], "parent": True
+                            }))
                     if has_peer:
                         peer_menu = insert_menu.addMenu(f"Lvl {peer_level} (peer)")
                         for t in sorted(peer_templates, key=lambda x: x["name"]):
@@ -896,10 +920,12 @@ class OOBTreeWidget(QTreeWidget):
 
         try:
             is_peer = info.get("peer", False)
+            is_parent = info.get("parent", False)
             new_idx = self.data.reparent_unit(
-                None, row_index, peer_drop=is_peer,
+                None, row_index, peer_drop=is_peer and not is_parent,
                 new_row_data=template["row"],
-                source_level=template["level"])
+                source_level=template["level"],
+                parent_drop=is_parent)
             if isinstance(new_idx, int):
                 self.populate()
                 self.select_unit(new_idx)

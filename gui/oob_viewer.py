@@ -176,10 +176,6 @@ class OOBViewer(QMainWindow):
         self._set_validation_state("unknown")
         controls_layout.addWidget(self.validate_button)
 
-        self.load_templates_button = QPushButton("Load Templates")
-        self.load_templates_button.clicked.connect(self._on_load_templates)
-        controls_layout.addWidget(self.load_templates_button)
-
         controls_layout.addStretch()
 
         controls_container = QWidget()
@@ -197,9 +193,6 @@ class OOBViewer(QMainWindow):
         self.tree.unit_deleted.connect(self.on_unit_deleted)
         self.tree.unit_moved.connect(self.on_unit_moved)
         self.tree.unit_added.connect(self._on_unit_added)
-        self.tree.zoom_to_unit_requested.connect(self.on_zoom_to_unit)
-        self.tree.load_templates()
-        self.tree.load_pools()
 
         self.shared_toolbar = OOBSharedToolbar()
         self.shared_toolbar.regen_indices_requested.connect(self.action_regenerate_indices)
@@ -240,7 +233,19 @@ class OOBViewer(QMainWindow):
 
         self.files_tab = FilesTab()
         self.files_tab.file_changed.connect(self._on_file_changed)
+        self.files_tab.template_toggled.connect(self._on_template_toggled)
+        self.files_tab.reload_templates.connect(self._on_load_templates)
         self.right_tab_widget.addTab(self.files_tab, "Files/Settings")
+
+        # Scan template files and load with enabled state
+        templates_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "templates", "units")
+        enabled_state = self._load_template_enabled_state()
+        self.files_tab.scan_template_files(templates_dir, enabled_state)
+        enabled_files = self.files_tab.get_enabled_template_files()
+        self.tree.load_templates(enabled_files if enabled_files else None)
+        self.tree.load_pools()
 
         if self.config.get("map-ini"):
             self.right_tab_widget.setCurrentWidget(self.map_viewer)
@@ -293,7 +298,8 @@ class OOBViewer(QMainWindow):
         return {
             key: parser.get("paths", key, fallback="")
             for key in ("map-ini", "drills", "oob", "rifles", "artillery",
-                        "gfx", "unitglobal", "unitmodel")
+                        "gfx", "unitglobal", "unitmodel",
+                        "template_files_enabled")
         }
 
     def _save_config(self, **kwargs):
@@ -544,12 +550,38 @@ class OOBViewer(QMainWindow):
         self._set_validation_state("unknown")
 
     def _on_load_templates(self):
-        self.tree.load_templates()
+        templates_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "templates", "units")
+        current_state = self.files_tab.get_template_enabled_state()
+        self.files_tab.scan_template_files(templates_dir, current_state)
+        enabled_files = self.files_tab.get_enabled_template_files()
+        self.tree.load_templates(enabled_files if enabled_files else None)
         self.tree.load_pools()
         count = len(self.tree._templates)
         pool_count = len(self.data._pool_cache)
-        QMessageBox.information(self, "Load Templates",
+        QMessageBox.information(self, "Reload Templates",
                                 f"Loaded {count} template(s) and {pool_count} pool(s).")
+
+    def _on_template_toggled(self, file_path: str, enabled: bool):
+        self._save_template_enabled_state()
+        enabled_files = self.files_tab.get_enabled_template_files()
+        self.tree.load_templates(enabled_files if enabled_files else None)
+
+    def _load_template_enabled_state(self) -> dict:
+        import json
+        raw = self.config.get("template_files_enabled", "")
+        if raw:
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return {}
+
+    def _save_template_enabled_state(self):
+        import json
+        state = self.files_tab.get_template_enabled_state()
+        self._save_config(template_files_enabled=json.dumps(state))
 
     def on_zoom_to_unit(self, row_index: int):
         self.map_viewer.on_unit_double_clicked(row_index)

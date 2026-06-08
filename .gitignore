@@ -5,6 +5,10 @@ __pycache__
 *.csv
 !test.csv
 !default_templates.csv
+!allied_templates.csv 
+!confederate_templates.csv
+!french_templates.csv
+!union_templates.csv
 !oob_headers.csv
 
 Output/

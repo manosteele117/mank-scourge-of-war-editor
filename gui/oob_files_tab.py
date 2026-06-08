@@ -1,9 +1,10 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QFileDialog, QSizePolicy, QScrollArea, QGroupBox,
+    QFileDialog, QSizePolicy, QScrollArea, QGroupBox, QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
+import os
 
 
 class FileEntry(QWidget):
@@ -51,14 +52,54 @@ class FileEntry(QWidget):
         return self._current_path
 
 
+class TemplateFileEntry(QWidget):
+    """A single template file entry with a toggle checkbox and file name label."""
+
+    toggled = Signal(str, bool)  # file_path, enabled
+
+    def __init__(self, file_path: str, file_name: str, enabled: bool = True, parent=None):
+        super().__init__(parent)
+        self.file_path = file_path
+        self._enabled = enabled
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.checkbox = QCheckBox()
+        self.checkbox.setChecked(enabled)
+        self.checkbox.stateChanged.connect(self._on_state_changed)
+        layout.addWidget(self.checkbox)
+
+        self.name_label = QLabel(file_name)
+        self.name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        layout.addWidget(self.name_label)
+
+    def _on_state_changed(self, state):
+        self._enabled = (state == Qt.Checked.value)
+        self.toggled.emit(self.file_path, self._enabled)
+
+    def is_enabled(self) -> bool:
+        return self._enabled
+
+    def set_enabled(self, enabled: bool):
+        self._enabled = enabled
+        self.checkbox.blockSignals(True)
+        self.checkbox.setChecked(enabled)
+        self.checkbox.blockSignals(False)
+
+
 class FilesTab(QWidget):
     """Files/Settings tab for loading and managing file paths."""
 
     file_changed = Signal(str, str)  # config_key, file_path
+    template_toggled = Signal(str, bool)  # file_path, enabled
+    reload_templates = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._entries = {}
+        self._template_entries = {}  # file_path -> TemplateFileEntry
         self._init_ui()
 
     def _init_ui(self):
@@ -77,6 +118,10 @@ class FilesTab(QWidget):
         # ── Files section ──────────────────────────────────────────
         files_group = self._create_files_section()
         scroll_layout.addWidget(files_group)
+
+        # ── Template Files section ─────────────────────────────────
+        templates_group = self._create_templates_section()
+        scroll_layout.addWidget(templates_group)
 
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)
@@ -119,6 +164,88 @@ class FilesTab(QWidget):
                         "CSV Files (*.csv)", "unit model definitions")
 
         return group
+
+    def _create_templates_section(self) -> QGroupBox:
+        group = QGroupBox("Template Files")
+        group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #444444;
+                border-radius: 4px;
+                margin-top: 12px;
+                padding-top: 16px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+            }
+        """)
+        self._templates_layout = QVBoxLayout(group)
+        self._templates_layout.setSpacing(4)
+
+        self._templates_placeholder = QLabel("No template files found.")
+        self._templates_placeholder.setStyleSheet("color: #666666; font-style: italic;")
+        self._templates_layout.addWidget(self._templates_placeholder)
+
+        self._templates_layout.addSpacing(8)
+
+        self.reload_button = QPushButton("Reload Templates")
+        self.reload_button.clicked.connect(self.reload_templates.emit)
+        self._templates_layout.addWidget(self.reload_button)
+
+        return group
+
+    def scan_template_files(self, templates_dir: str, enabled_state: dict = None):
+        """Scan templates_dir for CSV files and create toggle entries.
+
+        Args:
+            templates_dir: Path to the templates/units directory.
+            enabled_state: Dict mapping filename -> bool (enabled state).
+                           Missing files default to True.
+        """
+        # Clear existing entries
+        for entry in self._template_entries.values():
+            entry.setParent(None)
+            entry.deleteLater()
+        self._template_entries.clear()
+
+        if enabled_state is None:
+            enabled_state = {}
+
+        if not os.path.isdir(templates_dir):
+            return
+
+        csv_files = sorted(f for f in os.listdir(templates_dir) if f.endswith(".csv"))
+
+        # Remove placeholder if files found
+        if csv_files:
+            self._templates_placeholder.hide()
+
+        for fname in csv_files:
+            fpath = os.path.join(templates_dir, fname)
+            enabled = enabled_state.get(fname, True)
+            entry = TemplateFileEntry(fpath, fname, enabled)
+            entry.toggled.connect(self._on_template_toggled)
+            self._template_entries[fpath] = entry
+            # Insert before the reload button
+            self._templates_layout.insertWidget(self._templates_layout.count() - 2, entry)
+
+    def _on_template_toggled(self, file_path: str, enabled: bool):
+        self.template_toggled.emit(file_path, enabled)
+
+    def get_enabled_template_files(self) -> set:
+        """Return set of file paths that are currently enabled."""
+        return {path for path, entry in self._template_entries.items()
+                if entry.is_enabled()}
+
+    def get_template_enabled_state(self) -> dict:
+        """Return dict mapping filename -> bool for config persistence."""
+        state = {}
+        for path, entry in self._template_entries.items():
+            fname = os.path.basename(path)
+            state[fname] = entry.is_enabled()
+        return state
 
     def _add_entry(self, label: str, config_key: str, layout: QVBoxLayout,
                    file_filter: str, hint: str):
