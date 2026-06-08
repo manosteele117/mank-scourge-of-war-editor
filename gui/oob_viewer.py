@@ -176,6 +176,10 @@ class OOBViewer(QMainWindow):
         self._set_validation_state("unknown")
         controls_layout.addWidget(self.validate_button)
 
+        self.load_templates_button = QPushButton("Load Templates")
+        self.load_templates_button.clicked.connect(self._on_load_templates)
+        controls_layout.addWidget(self.load_templates_button)
+
         controls_layout.addStretch()
 
         controls_container = QWidget()
@@ -194,6 +198,8 @@ class OOBViewer(QMainWindow):
         self.tree.unit_moved.connect(self.on_unit_moved)
         self.tree.unit_added.connect(self._on_unit_added)
         self.tree.zoom_to_unit_requested.connect(self.on_zoom_to_unit)
+        self.tree.load_templates()
+        self.tree.load_pools()
 
         self.shared_toolbar = OOBSharedToolbar()
         self.shared_toolbar.regen_indices_requested.connect(self.action_regenerate_indices)
@@ -536,6 +542,14 @@ class OOBViewer(QMainWindow):
 
     def _on_detail_edited(self):
         self._set_validation_state("unknown")
+
+    def _on_load_templates(self):
+        self.tree.load_templates()
+        self.tree.load_pools()
+        count = len(self.tree._templates)
+        pool_count = len(self.data._pool_cache)
+        QMessageBox.information(self, "Load Templates",
+                                f"Loaded {count} template(s) and {pool_count} pool(s).")
 
     def on_zoom_to_unit(self, row_index: int):
         self.map_viewer.on_unit_double_clicked(row_index)

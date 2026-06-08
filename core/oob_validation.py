@@ -151,10 +151,29 @@ class OOBValidator:
             )
         ]
 
+    def check_duplicate_ids(self) -> List[ValidationIssue]:
+        if self.data.df is None or "ID" not in self.data.df.columns:
+            return []
+        df = self.data.df
+        ids = df["ID"].fillna("").astype(str)
+        dup_mask = ids.duplicated(keep=False) & (ids != "")
+        if not dup_mask.any():
+            return []
+        issues: List[ValidationIssue] = []
+        for i in df.index[dup_mask]:
+            issues.append(ValidationIssue(
+                check_name="Duplicate ID",
+                line_number=int(df.at[i, "line_number"]),
+                unit_name=str(df.at[i, "NAME1"]),
+                message=f"ID '{ids.at[i]}' is not unique.",
+            ))
+        return issues
+
     def validate(self) -> List[ValidationIssue]:
         self._refresh_columns()
         issues: List[ValidationIssue] = []
         issues.extend(self.check_unit_stats_conflict())
         issues.extend(self.check_hierarchy_conflicts())
+        issues.extend(self.check_duplicate_ids())
         issues.sort(key=lambda i: i.line_number)
         return issues

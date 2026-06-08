@@ -65,7 +65,9 @@ class OOBDetailsWidget(QWidget):
                 field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)
                 self.details_table.setItem(i, 0, field_item)
 
-                value_item = QTableWidgetItem(str(row[column]))
+                val = row[column]
+                display = "" if pd.isna(val) else str(val)
+                value_item = QTableWidgetItem(display)
                 self.details_table.setItem(i, 1, value_item)
             self.details_table.resizeRowsToContents()
             self.details_table.resizeColumnToContents(0)

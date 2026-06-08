@@ -1,7 +1,12 @@
 .vscode
 __pycache__
+
+# no csv, unless on whitelist
 *.csv
 !test.csv
+!default_templates.csv
+!oob_headers.csv
+
 Output/
 config/
 .*/

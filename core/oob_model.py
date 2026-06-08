@@ -1,4 +1,7 @@
 import math
+import re
+import random
+import traceback
 import numpy as np
 import pandas as pd
 from io import StringIO
@@ -70,6 +73,11 @@ class OOBData:
         # Adjacency index: built once per load. ``None`` until _ensure_built.
         self._parent_to_children: Optional[Dict[int, List[int]]] = None
         self._children_set: set = set()  # all row indices that appear as a child
+
+        # Template variation caches
+        self._pool_cache: Dict[str, List[str]] = {}
+        self._seq_counters: Dict[Tuple[int, str], int] = {}
+        self._cycle_counters: Dict[Tuple[int, str], int] = {}
         self._level_by_row: Optional[np.ndarray] = None
         self._hierarchy_keys: Optional[np.ndarray] = None  # shape (n_rows, 6) int64
 
@@ -412,10 +420,10 @@ class OOBData:
         return UnitInfo(
             row_index=row_index,
             name=str(row.get("NAME1", f"Unit {row_index}")),
-            side=int(row.get("SIDE 1", 1) or 1),
+            side=int(row.get("SIDE 1") if pd.notna(row.get("SIDE 1")) else 1),
             level=self.get_level(row_index),
-            formation=str(row.get("Formation", "") or ""),
-            head_count=int(row.get("Head Count", 0) or 0),
+            formation=str(row.get("Formation") if pd.notna(row.get("Formation")) else ""),
+            head_count=int(row.get("Head Count") if pd.notna(row.get("Head Count")) else 0),
         )
 
     def get_direct_children(self, row_index: int, exclude_supply: bool = True) -> List[int]:
@@ -608,36 +616,65 @@ class OOBData:
         self._build_adjacency_index()
         return True
 
-    def reparent_unit(self, row_index: int, target_row_index: int,
-                      peer_drop: bool) -> bool:
-        """Reparent a unit (and its subtree) under a new parent.
+    def reparent_unit(self, row_index: Optional[int], target_row_index: int,
+                      peer_drop: bool, new_row_data: Optional[Dict[str, Any]] = None,
+                      source_level: Optional[int] = None) -> Any:
+        """Reparent a unit subtree OR insert a new unit at a target location.
+
+        This method serves two purposes:
+        1. Move an existing unit (and its subtree) to a new parent or peer
+           position. Pass row_index=int, new_row_data=None. Returns True/False.
+        2. Insert a new unit from template data at a target location.
+           Pass row_index=None, new_row_data=column dict. Returns new row index.
+
+        Placement rules (same for both modes):
+        - peer_drop=True: target is at the same level; insert AFTER the target
+          under the target's parent, renumbering siblings as needed.
+        - peer_drop=False: target is one level above; insert as the last child
+          of the target.
 
         Args:
-            row_index: The unit to move (its full subtree follows).
+            row_index: The unit to move (its full subtree follows), or None
+                for insert mode.
             target_row_index: The drop target.
-            peer_drop: True if target is a peer at the same level; the
-                source subtree is inserted AFTER the target under the
-                target's parent. False if target is the new parent at
-                source_level - 1; the source subtree is inserted as the
-                last child of the target.
+            peer_drop: Peer vs child placement.
+            new_row_data: Column dict for the new row (insert mode only).
+            source_level: The level of the unit being inserted (insert mode).
+                For peer drops, equals target level. For child drops, equals
+                target level + 1.
 
-        Returns True if the move was performed, False otherwise.
+        Returns the new row index (insert mode) or True/False (move mode).
         """
         self._ensure_built()
-        source_level = self.get_level(row_index)
-        if source_level is None:
-            return False
         target_level = self.get_level(target_row_index)
         if target_level is None:
             return False
-        if target_row_index == row_index:
-            return False
-        if self.is_descendant_of(target_row_index, row_index):
-            return False
+
+        # Insert mode: determine source level and validate
+        if new_row_data is not None:
+            if source_level is None:
+                return False
+            if peer_drop and source_level != target_level:
+                return False
+            if not peer_drop and source_level != target_level + 1:
+                return False
+        else:
+            # Move mode: validate source
+            if row_index is None:
+                return False
+            source_level = self.get_level(row_index)
+            if source_level is None:
+                return False
+            if target_row_index == row_index:
+                return False
+            if self.is_descendant_of(target_row_index, row_index):
+                return False
+            if peer_drop and source_level != target_level:
+                return False
+            if not peer_drop and source_level != target_level + 1:
+                return False
 
         if peer_drop:
-            if source_level != target_level:
-                return False
             target_key = self.get_hierarchy_key_by_index(target_row_index)
             new_parent_key = self.get_parent_key(target_key)
             target_l_value = target_key[source_level - 1]
@@ -655,8 +692,6 @@ class OOBData:
                 if existing_val >= new_l_value:
                     self.df.at[i, HIERARCHY_COLS[source_level - 1]] = existing_val + 1
         else:
-            if target_level != source_level - 1:
-                return False
             new_parent_key = self.get_hierarchy_key_by_index(target_row_index)
             existing_indices = []
             for c in self._parent_to_children.get(target_row_index, []):
@@ -666,17 +701,64 @@ class OOBData:
                         existing_indices.append(int(val))
             new_l_value = max(existing_indices) + 1 if existing_indices else 1
 
-        subtree_rows = self._collect_subtree_rows(row_index)
         new_prefix = list(new_parent_key[:source_level - 1])
-        for r in subtree_rows:
-            old_key = self.get_hierarchy_key_by_index(r)
-            new_key = new_prefix + [new_l_value] + list(old_key[source_level:])
-            for i, hcol in enumerate(HIERARCHY_COLS):
-                self.df.at[r, hcol] = new_key[i]
 
-        self._invalidate_caches()
-        self._build_adjacency_index()
-        return True
+        if new_row_data is not None:
+            # Insert mode: create a single new row
+            new_row = {col: new_row_data.get(col, "") for col in self.df.columns}
+            for i, hcol in enumerate(HIERARCHY_COLS):
+                new_row[hcol] = new_prefix[i] if i < source_level - 1 else (
+                    new_l_value if i == source_level - 1 else 0)
+            new_row["line_number"] = ""
+
+            # Determine actual parent row for modifier resolution
+            if peer_drop:
+                actual_parent = self.get_row_index_by_key(new_parent_key)
+                if actual_parent is None:
+                    actual_parent = target_row_index
+            else:
+                actual_parent = target_row_index
+
+            # Resolve template modifiers (seq, pool, range, pick)
+            self._resolve_modifiers(new_row, actual_parent)
+
+            # Assign a unique ID by appending an index to the template ID
+            template_id = str(new_row.get("ID", "")).strip()
+            if template_id and "ID" in self.df.columns:
+                used_indices = set()
+                for val in self.df["ID"].dropna():
+                    val_str = str(val).strip()
+                    if val_str.startswith(template_id) and val_str != template_id:
+                        suffix = val_str[len(template_id):]
+                        try:
+                            used_indices.add(int(suffix))
+                        except ValueError:
+                            pass
+                idx = 1
+                while idx in used_indices:
+                    idx += 1
+                new_row["ID"] = f"{template_id}{idx}"
+
+            new_df = pd.DataFrame([new_row])
+            for col in INT_COLUMNS:
+                if col in new_df.columns:
+                    new_df[col] = pd.to_numeric(new_df[col], errors="coerce").astype("Int64")
+            new_row_idx = len(self.df)
+            self.df = pd.concat([self.df, new_df], ignore_index=True)
+            self._invalidate_caches()
+            self._build_adjacency_index()
+            return new_row_idx
+        else:
+            # Move mode: rewrite hierarchy keys for the entire subtree
+            subtree_rows = self._collect_subtree_rows(row_index)
+            for r in subtree_rows:
+                old_key = self.get_hierarchy_key_by_index(r)
+                new_key = new_prefix + [new_l_value] + list(old_key[source_level:])
+                for i, hcol in enumerate(HIERARCHY_COLS):
+                    self.df.at[r, hcol] = new_key[i]
+            self._invalidate_caches()
+            self._build_adjacency_index()
+            return True
 
     def _collect_subtree_rows(self, row_index: int) -> set:
         """Collect all row indices in the subtree rooted at row_index (including itself)."""
@@ -886,6 +968,320 @@ class OOBData:
         self._invalidate_caches()
         self._build_adjacency_index()
         return inserted_indices
+
+    def load_templates(self, templates_dir: str) -> List[Dict[str, Any]]:
+        """Load all template units from CSV files in templates_dir.
+
+        Each CSV uses the standard OOB header. Hierarchy columns contain 'X'
+        to mark the template's valid level. Returns a list of dicts with
+        keys: name, level, row, file, id.
+        """
+        if not os.path.isdir(templates_dir):
+            return []
+
+        templates: List[Dict[str, Any]] = []
+        saved_headers = self._original_headers
+        for fname in sorted(os.listdir(templates_dir)):
+            if not fname.endswith(".csv"):
+                continue
+            fpath = os.path.join(templates_dir, fname)
+            try:
+                tdf = pd.read_csv(fpath, encoding="cp1252", dtype=str)
+                self._original_headers = {}
+                tdf = self._normalize_columns(tdf)
+            except Exception:
+                print(f"Error in loading template file {fname}: {traceback.format_exc()}")
+                continue
+
+            for _, row in tdf.iterrows():
+                # Determine level from X in hierarchy columns
+                level = None
+                for li, hcol in enumerate(HIERARCHY_COLS):
+                    if hcol in tdf.columns:
+                        val = str(row.get(hcol, "")).strip().upper()
+                        if val == "X":
+                            level = li + 1
+                            break
+                if level is None:
+                    continue
+
+                name = str(row.get("Name", row.get("NAME1", "Unknown")))
+                uid = str(row.get("ID", ""))
+                row_dict = {col: row.get(col, "") for col in tdf.columns}
+                templates.append({
+                    "name": name,
+                    "level": level,
+                    "row": row_dict,
+                    "file": fpath,
+                    "id": uid,
+                })
+        self._original_headers = saved_headers
+        return templates
+
+    def save_as_template(self, row_index: int, templates_dir: str) -> str:
+        """Save a unit as a user template. Creates user_templates.csv if needed.
+
+        Reads headers from templates/headers/oob_headers.csv. Generates ID as
+        OOB_USER_# (incrementing from max existing). Sets hierarchy columns:
+        all empty except X at the unit's level.
+
+        Returns the new ID string.
+        """
+        header_path = os.path.join(
+            os.path.dirname(templates_dir), "headers", "oob_headers.csv")
+        if not os.path.exists(header_path):
+            raise FileNotFoundError(f"Header file not found: {header_path}")
+
+        header_df = pd.read_csv(header_path, encoding="cp1252", dtype=str, nrows=0)
+        header_cols = list(header_df.columns)
+
+        unit_row = self.df.iloc[row_index]
+        unit_level = self.get_level(row_index)
+        if unit_level is None:
+            raise ValueError("Cannot determine unit level")
+
+        # Build the template row from header columns
+        new_row = {}
+        for col in header_cols:
+            val = unit_row.get(col, "")
+            new_row[col] = "" if pd.isna(val) else str(val)
+
+        # Clear hierarchy columns and set X for the unit's level
+        for hcol in HIERARCHY_COLS:
+            new_row[hcol] = ""
+        new_row[HIERARCHY_COLS[unit_level - 1]] = "X"
+
+        # Determine next OOB_USER_LvlX_Y_ ID
+        user_path = os.path.join(templates_dir, "user_templates.csv")
+        level_count = 0
+        if os.path.exists(user_path):
+            existing = pd.read_csv(user_path, encoding="cp1252", dtype=str)
+            existing = self._normalize_columns(existing)
+            if "ID" in existing.columns:
+                prefix = f"OOB_USER_Lvl{unit_level}_"
+                for val in existing["ID"].dropna():
+                    val_str = str(val).strip()
+                    if val_str.startswith(prefix):
+                        try:
+                            num = int(val_str[len(prefix):].rstrip("_"))
+                            level_count = max(level_count, num)
+                        except ValueError:
+                            pass
+        new_id = f"OOB_USER_Lvl{unit_level}_{level_count + 1}_"
+        new_row["ID"] = new_id
+
+        # Write to file
+        new_df = pd.DataFrame([new_row])[header_cols]
+        if os.path.exists(user_path):
+            existing = pd.read_csv(user_path, encoding="cp1252", dtype=str)
+            existing = pd.concat([existing, new_df], ignore_index=True)
+            existing.to_csv(user_path, index=False, encoding="cp1252")
+        else:
+            new_df.to_csv(user_path, index=False, encoding="cp1252")
+
+        return new_id
+
+    def load_pools(self, pools_dir: str) -> None:
+        """Load name pools from .txt files in pools_dir.
+
+        Each file becomes a pool keyed by its stem (e.g. 'french_commanders').
+        Files are plain text with one entry per line.
+        """
+        if not os.path.isdir(pools_dir):
+            return
+        for fname in os.listdir(pools_dir):
+            if not fname.endswith(".txt"):
+                continue
+            pool_name = fname[:-4]
+            fpath = os.path.join(pools_dir, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    lines = [line.strip() for line in f if line.strip()]
+                if lines:
+                    self._pool_cache[pool_name] = lines
+            except Exception:
+                continue
+
+    def _resolve_pool(self, pool_name: str) -> str:
+        """Pick a random entry from a named pool."""
+        entries = self._pool_cache.get(pool_name)
+        if not entries:
+            return f"{{{pool_name}}}"
+        return random.choice(entries)
+
+    def _resolve_seq(self, seq_name: str, parent_row_index: int,
+                     suffix_pattern: str = "") -> int:
+        """Get the next sequence number for a named sequence under a parent.
+
+        On first call for a (parent, seq_name) combo, scans existing
+        children's NAME1 for the suffix pattern to find the max number
+        already in use. If no suffix is provided, starts from the child count.
+
+        Args:
+            seq_name: The sequence name (e.g. "us_inf").
+            parent_row_index: The parent unit's row index.
+            suffix_pattern: The resolved literal text after the seq
+                placeholder (e.g. "th Regiment" from "{seq:us_inf}th Regiment").
+                Used to match existing children and find the max number.
+        """
+        key = (parent_row_index, seq_name)
+        if key not in self._seq_counters:
+            max_num = 0
+            if suffix_pattern:
+                # Scan existing children for matching pattern: "N suffix_pattern"
+                escaped = re.escape(suffix_pattern)
+                match_re = re.compile(r'^(\d+)\s*' + escaped + r'$', re.IGNORECASE)
+                children = self._parent_to_children.get(parent_row_index, [])
+                for c in children:
+                    name = str(self.df.at[c, "NAME1"])
+                    m = match_re.match(name)
+                    if m:
+                        max_num = max(max_num, int(m.group(1)))
+            else:
+                children = self._parent_to_children.get(parent_row_index, [])
+                max_num = len(children)
+            self._seq_counters[key] = max_num + 1
+        else:
+            self._seq_counters[key] += 1
+        return self._seq_counters[key]
+
+    def _resolve_cycle(self, cycle_str: str, parent_row_index: int) -> str:
+        """Cycle through a pipe-separated list of values.
+
+        The list itself is the key. On first call for a (parent, list)
+        combo, returns the first item. Each subsequent call advances to
+        the next item, wrapping around when exhausted.
+
+        Args:
+            cycle_str: Pipe-separated values (e.g. "1|1|2|2|3|3" or "1er|2e").
+            parent_row_index: The parent unit's row index.
+        """
+        items = [x.strip() for x in cycle_str.split("|")]
+        if not items:
+            return f"{{{cycle_str}}}"
+        key = (parent_row_index, cycle_str)
+        if key not in self._cycle_counters:
+            self._cycle_counters[key] = 0
+        idx = self._cycle_counters[key]
+        result = items[idx % len(items)]
+        self._cycle_counters[key] = idx + 1
+        return result
+
+    @staticmethod
+    def _int_to_ordinal(n: int) -> str:
+        """Convert an integer to an English ordinal numeral (e.g. 1→'1st')."""
+        if 11 <= (n % 100) <= 13:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    def _resolve_rangeord(self, min_val: int, max_val: int) -> str:
+        """Pick a random integer in [min, max] and return it as an ordinal."""
+        return self._int_to_ordinal(random.randint(min_val, max_val))
+
+    def _resolve_seqord(self, seq_name: str, parent_row_index: int,
+                        suffix_pattern: str = "") -> str:
+        """Like _resolve_seq but returns the result as an ordinal string."""
+        num = self._resolve_seq(seq_name, parent_row_index, suffix_pattern)
+        return self._int_to_ordinal(num)
+
+    def _resolve_suffix_modifiers(self, text: str) -> str:
+        """Resolve pool, range, rangeord, seq, seqord, and pick modifiers in a suffix string.
+
+        Used to compute the actual match pattern for seq scanning.
+        Pool picks use the first option for deterministic matching.
+        Range uses 0. Seqord uses "1st" for deterministic matching.
+        """
+        def replace_pool(m):
+            options = m.group(1).split("|")
+            return options[0]
+        def replace_range(m):
+            return "0"
+        def replace_rangeord(m):
+            return "1st"
+        def replace_seqord(m):
+            return "1"
+        def replace_pick(m):
+            options = m.group(1).split("|")
+            return options[0]
+        text = re.sub(r'\{pool:([^}]+)\}', replace_pool, text)
+        text = re.sub(r'\{range:(\d+)-(\d+)\}', replace_range, text)
+        text = re.sub(r'\{rangeord:(\d+)-(\d+)\}', replace_rangeord, text)
+        text = re.sub(r'\{seqord:([^}]+)\}', replace_seqord, text)
+        text = re.sub(r'\{pick:([^}]+)\}', replace_pick, text)
+        return text
+
+    def _resolve_modifiers(self, row_dict: dict, parent_row_index: int) -> None:
+        """Resolve all {modifier} placeholders in string fields of row_dict.
+
+        Uses a two-pass approach for seq modifiers:
+        1. First pass: extract seq names and compute suffix patterns by
+           resolving nested modifiers in the raw text after each seq marker.
+        2. Second pass: resolve all modifiers, using the precomputed suffix
+           patterns for seq scanning.
+
+        Modifiers:
+            {seq:name}         - sequential number per (parent, name)
+            {seqord:name}      - sequential ordinal per (parent, name) (1st, 2nd, ...)
+            {cycle:v1|v2|...}  - cycling list per parent, wraps around
+            {pool:name}        - random pick from named pool file
+            {range:min-max}    - random integer in range
+            {rangeord:min-max} - random ordinal in range (1st, 2nd, ...)
+            {pick:a|b|c}       - random pick from list
+        """
+        seq_pattern = re.compile(r'\{seq(?:ord)?:([^}]+)\}')
+        all_mods = re.compile(
+            r'\{seqord:([^}]+)\}'
+            r'|\{seq:([^}]+)\}'
+            r'|\{cycle:([^}]+)\}'
+            r'|\{pool:([^}]+)\}'
+            r'|\{rangeord:(\d+)-(\d+)\}'
+            r'|\{range:(\d+)-(\d+)\}'
+            r'|\{pick:([^}]+)\}'
+        )
+
+        # First pass: compute suffix patterns for each seq/seqord in each field
+        seq_suffixes: Dict[str, str] = {}
+        for col in list(row_dict.keys()):
+            val = row_dict[col]
+            if not isinstance(val, str) or "{seq" not in val:
+                continue
+            for m in seq_pattern.finditer(val):
+                seq_name = m.group(1)
+                if seq_name not in seq_suffixes:
+                    # Extract raw text after the seq marker to end of string
+                    raw_suffix = val[m.end():]
+                    # Resolve nested modifiers to get actual text pattern
+                    seq_suffixes[seq_name] = self._resolve_suffix_modifiers(raw_suffix)
+
+        # Second pass: resolve all modifiers
+        def replacer(m):
+            if m.group(1) is not None:
+                seq_name = m.group(1)
+                suffix = seq_suffixes.get(seq_name, "")
+                return self._resolve_seqord(seq_name, parent_row_index, suffix)
+            elif m.group(2) is not None:
+                seq_name = m.group(2)
+                suffix = seq_suffixes.get(seq_name, "")
+                return str(self._resolve_seq(seq_name, parent_row_index, suffix))
+            elif m.group(3) is not None:
+                return self._resolve_cycle(m.group(3), parent_row_index)
+            elif m.group(4) is not None:
+                return self._resolve_pool(m.group(4))
+            elif m.group(5) is not None and m.group(6) is not None:
+                return self._resolve_rangeord(int(m.group(5)), int(m.group(6)))
+            elif m.group(7) is not None and m.group(8) is not None:
+                return str(random.randint(int(m.group(7)), int(m.group(8))))
+            elif m.group(9) is not None:
+                options = m.group(9).split("|")
+                return random.choice(options)
+            return m.group(0)
+
+        for col in list(row_dict.keys()):
+            val = row_dict[col]
+            if isinstance(val, str) and "{" in val:
+                row_dict[col] = all_mods.sub(replacer, val)
 
     def regenerate_hierarchy_indices(self) -> None:
         """Reassign hierarchy indices sequentially under each parent.

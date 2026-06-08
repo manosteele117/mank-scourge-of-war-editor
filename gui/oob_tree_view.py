@@ -30,9 +30,7 @@ class OOBTreeWidget(QTreeWidget):
     delete_requested = Signal()
     copy_requested = Signal()
     paste_requested = Signal()
-    insert_template_requested = Signal()
     zoom_to_unit_requested = Signal(int)
-    formation_requested = Signal(int, dict)
     filter_count_changed = Signal(int, int)  # visible_count, total_count
     unit_moved = Signal(list)  # list of source row indices that were moved
 
@@ -48,6 +46,10 @@ class OOBTreeWidget(QTreeWidget):
         self._total_unit_count: int = 0
         self._cut_row_indices: set = set()
         self._cut_top_level_rows: set = set()
+        self._templates: list = []
+        self._templates_dir: str = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "templates", "units")
         self._drop_target_item = None
         self._drop_target_valid = False
         self._drop_target_original_bg = None
@@ -158,7 +160,7 @@ class OOBTreeWidget(QTreeWidget):
                        for v in df["Experience"].tolist()] if "Experience" in df.columns else [0.0] * n_rows
         formations = [str(v) if v is not None and not pd.isna(v) else ""
                        for v in df["Formation"].tolist()] if "Formation" in df.columns else [""] * n_rows
-        line_nums = [int(v) if v is not None and not pd.isna(v) else i + 2
+        line_nums = [int(v) if v is not None and not pd.isna(v) and str(v).strip() != "" else i + 2
                      for i, v in enumerate(df["line_number"].tolist())] if "line_number" in df.columns else list(range(2, n_rows + 2))
         is_supply = ["SupplyWagon" in f for f in formations]
 
@@ -365,6 +367,17 @@ class OOBTreeWidget(QTreeWidget):
             return
         self._placement_filter = mode
         self.refresh_indicators_and_visibility()
+
+    def load_templates(self) -> None:
+        """Load or reload all template units from the templates directory."""
+        self._templates = self.data.load_templates(self._templates_dir)
+
+    def load_pools(self) -> None:
+        """Load name pools from the pools directory."""
+        pools_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "templates", "pools")
+        self.data.load_pools(pools_dir)
 
     def drawRow(self, painter, option, index):
         item = self.itemFromIndex(index)
@@ -671,42 +684,60 @@ class OOBTreeWidget(QTreeWidget):
                             if current_pos < len(siblings) - 1:
                                 menu.addAction("Move Down", self.action_move_down)
 
-                # Add Single Unit submenu
-                if level < 6:
-                    unit_menu = menu.addMenu("Add Single Unit")
-                    templates_dir = os.path.join(
-                        os.path.dirname(os.path.dirname(__file__)),
-                        "templates", "units")
-                    if os.path.exists(templates_dir):
-                        for fname in sorted(os.listdir(templates_dir)):
-                            if fname.endswith(".csv"):
-                                template_name = fname[:-4]  # strip .csv
-                                action = unit_menu.addAction(template_name)
-                                action.setData(os.path.join(templates_dir, fname))
+            # Insert Template submenu
+            if self._templates and level is not None:
+                peer_level = level       # same level = peer
+                child_level = level + 1  # one deeper = child
 
-                # Add Formation submenu
-                if level < 6:
-                    formation_menu = menu.addMenu("Add Formation")
-                    action_infantry = formation_menu.addAction("Infantry Formation")
-                    action_infantry.setData("infantry")
-                    action_cavalry = formation_menu.addAction("Cavalry Formation")
-                    action_cavalry.setData("cavalry")
-                    action_artillery = formation_menu.addAction("Artillery Formation")
-                    action_artillery.setData("artillery")
+                peer_templates = [t for t in self._templates if t["level"] == peer_level]
+                child_templates = [t for t in self._templates if t["level"] == child_level]
+                # Level 6 can only have peers, no children
+                if level == 6:
+                    child_templates = []
+
+                has_peer = len(peer_templates) > 0
+                has_child = len(child_templates) > 0
+
+                insert_menu = menu.addMenu("Insert Template")
+                if not has_peer and not has_child:
+                    insert_menu.setEnabled(False)
+                else:
+                    if has_peer:
+                        peer_menu = insert_menu.addMenu(f"Lvl {peer_level} (peer)")
+                        for t in sorted(peer_templates, key=lambda x: x["name"]):
+                            action = peer_menu.addAction(t["name"])
+                            action.setData(json.dumps({
+                                "file": t["file"], "id": t["id"],
+                                "level": t["level"], "peer": True
+                            }))
+                    if has_child:
+                        child_menu = insert_menu.addMenu(f"Lvl {child_level} (child)")
+                        for t in sorted(child_templates, key=lambda x: x["name"]):
+                            action = child_menu.addAction(t["name"])
+                            action.setData(json.dumps({
+                                "file": t["file"], "id": t["id"],
+                                "level": t["level"], "peer": False
+                            }))
+
+            # Save as Template
+            menu.addAction("Save as Template", self.action_save_as_template)
 
         menu.addSeparator()
-        menu.addAction("Insert Unit Template", self.action_insert_template)
         menu.addAction("Copy CSV Format to Clipboard", self.action_copy_csv_format)
 
-        # Connect submenu actions
+        # Dispatch submenu actions
         result = menu.exec(self.mapToGlobal(position))
         if result is not None:
             data = result.data()
             if data and isinstance(data, str):
-                if data.endswith(".csv"):
-                    self.action_add_single_unit(data)
-                elif data in ("infantry", "cavalry", "artillery"):
-                    self.action_add_formation(data)
+                if data == "save_template":
+                    self.action_save_as_template()
+                else:
+                    try:
+                        info = json.loads(data)
+                        self.action_insert_template(info)
+                    except (json.JSONDecodeError, KeyError):
+                        pass
 
     def action_zoom_to_unit(self) -> None:
         items = self.selectedItems()
@@ -847,18 +878,61 @@ class OOBTreeWidget(QTreeWidget):
     def action_expand_all(self) -> None:
         self.expandAll()
 
-    def action_insert_template(self) -> None:
+    def action_insert_template(self, info: dict) -> None:
+        """Insert a template unit at the selected location."""
         items = self.selectedItems()
         if not items:
-            QMessageBox.warning(self, "Insert Template", "No parent unit selected")
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
             return
 
-        item = items[0]
-        row_index = item.data(0, Qt.UserRole)
-        if row_index is None:
-            QMessageBox.warning(self, "Insert Template", "Cannot insert under this item")
+        template = next((t for t in self._templates
+                         if t["file"] == info["file"] and t["id"] == info["id"]),
+                        None)
+        if template is None:
+            QMessageBox.warning(self, "Insert Template", "Template not found")
             return
-        self.insert_template_requested.emit()
+
+        try:
+            is_peer = info.get("peer", False)
+            new_idx = self.data.reparent_unit(
+                None, row_index, peer_drop=is_peer,
+                new_row_data=template["row"],
+                source_level=template["level"])
+            if isinstance(new_idx, int):
+                self.populate()
+                self.select_unit(new_idx)
+                self.unit_added.emit()
+            else:
+                QMessageBox.warning(self, "Insert Template",
+                                    "Failed to insert template at this location")
+        except Exception as e:
+            QMessageBox.critical(self, "Insert Template Error",
+                                 f"Failed to insert template:\n\n"
+                                 f"Error: {type(e).__name__}: {str(e)}\n\n"
+                                 f"Stack trace:\n{traceback.format_exc()}")
+
+    def action_save_as_template(self) -> None:
+        """Save the selected unit as a user template."""
+        items = self.selectedItems()
+        if not items:
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
+            return
+
+        try:
+            new_id = self.data.save_as_template(row_index, self._templates_dir)
+            self.load_templates()
+            QMessageBox.information(self, "Save as Template",
+                                    f"Saved as template '{new_id}'")
+            self.unit_added.emit()
+        except Exception as e:
+            QMessageBox.critical(self, "Save as Template Error",
+                                 f"Failed to save template:\n\n"
+                                 f"Error: {type(e).__name__}: {str(e)}\n\n"
+                                 f"Stack trace:\n{traceback.format_exc()}")
 
     def action_copy_csv_format(self) -> None:
         items = self.selectedItems()
@@ -905,55 +979,3 @@ class OOBTreeWidget(QTreeWidget):
         if self.data.move_unit(row_index, +1):
             self.populate_with_expansion()
             self.select_unit(row_index)
-
-    def action_add_single_unit(self, template_path: str) -> None:
-        items = self.selectedItems()
-        if not items:
-            QMessageBox.warning(self, "Add Unit", "No parent unit selected")
-            return
-        row_index = items[0].data(0, Qt.UserRole)
-        if row_index is None:
-            QMessageBox.warning(self, "Add Unit", "Cannot add under this item")
-            return
-        try:
-            new_idx = self.data.insert_unit(row_index, template_path)
-            self.populate()
-            self.select_unit(new_idx)
-            self.unit_added.emit()
-        except Exception as e:
-            QMessageBox.critical(self, "Add Unit Error",
-                                 f"Failed to add unit from template:\n{template_path}\n\n"
-                                 f"Error: {type(e).__name__}: {str(e)}\n\n"
-                                 f"Stack trace:\n{traceback.format_exc()}")
-
-    def action_add_formation(self, formation_type: str) -> None:
-        items = self.selectedItems()
-        if not items:
-            QMessageBox.warning(self, "Add Formation", "No parent unit selected")
-            return
-        row_index = items[0].data(0, Qt.UserRole)
-        if row_index is None:
-            QMessageBox.warning(self, "Add Formation", "Cannot add under this item")
-            return
-        templates_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "templates", "units")
-        composition = {
-            "commander_name": f"New {formation_type.title()} Commander",
-            "commander_level": 5,
-            "commander_formation": formation_type.title(),
-            "sub_units": [
-                {"template": f"lvl6_{formation_type}.csv", "count": 3},
-            ]
-        }
-        try:
-            inserted = self.data.insert_formation(row_index, composition)
-            self.populate_with_expansion()
-            if inserted:
-                self.select_unit(inserted[0])
-            self.unit_added.emit()
-        except Exception as e:
-            QMessageBox.critical(self, "Add Formation Error",
-                                 f"Failed to add {formation_type} formation:\n\n"
-                                 f"Error: {type(e).__name__}: {str(e)}\n\n"
-                                 f"Stack trace:\n{traceback.format_exc()}")
