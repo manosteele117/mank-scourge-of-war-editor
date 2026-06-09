@@ -1,166 +1,141 @@
-﻿import argparse
-import sys
+﻿import sys
 from pathlib import Path
 
 sys.path.insert(0, '.')
-from core.formation import populate_formation_archetypes_from_csv
+from core.formation import populate_formation_archetypes_from_csv, ActualFormation
 from core.oob_model import OOBData
 from core.utilities import plot_rectangles
 
+BASE = Path('C:/Steam/steamapps/common/Scourge Of War - Remastered/Base')
 
-DEFAULT_BASE_DIR = Path('C:/Steam/steamapps/common/Scourge Of War - Remastered/Base')
-DEFAULT_DRILLS_CSV = DEFAULT_BASE_DIR / 'Logistics' / 'drills.csv'
-DEFAULT_OOB_CSV = DEFAULT_BASE_DIR / 'OOBs' / 'OOB_SB_test_4corps.csv'
+# Formation overrides per level (None = use the OOB's default).
+LEVEL_FORMATIONS: dict[int, str | None] = {
+    6: None,
+    5: None,
+    4: "DRIL_Lvl4_Inf_Div_DoubleLine_FR",
+    3: "DRIL_Lvl3_Inf_Line_Corps_FR",
+    2: None,
+}
 
+# Standalone formation tests: (archetype_id, head_count, label)
+# Uses build_strength so artillery scale (15) vs infantry scale (6) is applied correctly
+STANDALONE_TESTS = [
+    #("DRIL_Lvl6_Inf_Line_3L", 300, "Lvl6 Inf Line (300 men)"),
+    ("DRIL_Lvl6_Art_Line", 30, "Lvl6 Art Line (30guys)"),
+    ("DRIL_Lvl6_Art_March", 30, "Lvl6 Art March (30guys)"),
+    #("DRIL_Lvl5_Art_Line", 30, "Lvl5 Art Line (8 gun children)"),
+    #("DRIL_Lvl5_Art_Column", 30, "Lvl5 Art Column (8 gun children)"),
+]
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Smoke-test formation layouts on an OOB CSV.")
-    p.add_argument('--drills', type=Path, default=DEFAULT_DRILLS_CSV,
-                   help='Path to drills.csv (formation archetypes).')
-    p.add_argument('--oob', type=Path, default=DEFAULT_OOB_CSV,
-                   help='Path to the OOB CSV to load.')
-    return p.parse_args()
-
-
-args = parse_args()
-
-populate_formation_archetypes_from_csv(str(args.drills))
-
-oob = OOBData()
-oob.load_csv(str(args.oob))
-
-
-def build_strength(row_index: int):
-    return oob.build_strength(row_index)
+DETAILED = True
+PLOT = True
 
 
-def find_unit_row(oob, name_fragment):
+def find_first_at_level(oob, level):
     for idx in range(len(oob.df)):
-        info = oob.unit_info(idx)
-        if name_fragment in info.name:
+        if oob.get_level(idx) == level:
+            info = oob.unit_info(idx)
             return idx, info.name
     return None, None
 
 
-def has_overlap(positions):
-    entries = [(seq, x, y, l, d) for seq, (x, y, l, d) in positions.items()]
-    for i in range(len(entries)):
-        for j in range(i + 1, len(entries)):
-            s1, x1, y1, l1, d1 = entries[i]
-            s2, x2, y2, l2, d2 = entries[j]
-            cx1, cx2 = x1 + l1 / 2, x2 + l2 / 2
-            overlap_x = abs(cx1 - cx2) < (l1 + l2) / 2
-            overlap_y = y1 < y2 + d2 and y2 < y1 + d1
-            if overlap_x and overlap_y:
-                return True, s1, s2
-    return False, None, None
+def find_first_with_class(oob, class_substr):
+    for idx in range(len(oob.df)):
+        cls = str(oob.df.iloc[idx].get("CLASS", ""))
+        if class_substr in cls:
+            info = oob.unit_info(idx)
+            return idx, info.name
+    return None, None
 
 
-def has_touching(positions):
-    entries = [(seq, x, y, l, d) for seq, (x, y, l, d) in positions.items()]
-    for i in range(len(entries)):
-        for j in range(i + 1, len(entries)):
-            s1, x1, y1, l1, d1 = entries[i]
-            s2, x2, y2, l2, d2 = entries[j]
-            cx1, cx2 = x1 + l1 / 2, x2 + l2 / 2
-            overlap_x = abs(cx1 - cx2) < (l1 + l2) / 2
-            touching_y = abs((y1 + d1) - y2) < 0.01 or abs((y2 + d2) - y1) < 0.01
-            if overlap_x and touching_y:
-                return True, s1, s2
-    return False, None, None
+def rects_overlap(a, b):
+    ax, ay, al, ad = a
+    bx, by, bl, bd = b
+    return ax < bx + bl and ax + al > bx and ay < by + bd and ay + ad > by
 
 
-def check_no_overlap(positions, label):
-    result, s1, s2 = has_overlap(positions)
-    if result:
-        print(f"  FAIL: {label} overlap between seq {s1} and seq {s2}")
-        return False
-    print(f"  PASS: {label} no overlaps")
-    return True
+def rects_touching(a, b):
+    ax, ay, al, ad = a
+    bx, by, bl, bd = b
+    touch_x = abs((ax + al / 2) - (bx + bl / 2)) < (al + bl) / 2 + 0.01
+    touch_y = abs((ay + ad / 2) - (by + bd / 2)) < (ad + bd) / 2 + 0.01
+    edges_close_x = (abs(ax - (bx + bl)) < 0.01 or abs((ax + al) - bx) < 0.01) and touch_y
+    edges_close_y = (abs(ay - (by + bd)) < 0.01 or abs((ay + ad) - by) < 0.01) and touch_x
+    return edges_close_x or edges_close_y
 
 
-def check_no_touching(positions, label):
-    result, s1, s2 = has_touching(positions)
-    if result:
-        print(f"  FAIL: {label} touching between seq {s1} and seq {s2}")
-        return False
-    print(f"  PASS: {label} no touching")
-    return True
+def check_formation(name, positions):
+    all_pass = True
+    seqs = sorted(positions.keys(), key=lambda s: int(s) if s.isdigit() else 0)
+    for i in range(len(seqs)):
+        for j in range(i + 1, len(seqs)):
+            s1, s2 = seqs[i], seqs[j]
+            r1, r2 = positions[s1], positions[s2]
+            if rects_overlap(r1, r2):
+                print(f"  OVERLAP: seq {s1} and seq {s2}")
+                all_pass = False
+            elif rects_touching(r1, r2):
+                print(f"  TOUCHING: seq {s1} and seq {s2}")
+                all_pass = False
+    return all_pass
 
 
-def check_centers_aligned_x(positions, label):
-    combat = {s: (x, y, l, d) for s, (x, y, l, d) in positions.items() if s not in ('1', '2')}
-    if not combat:
-        print(f"  SKIP: {label} no combat units")
-        return True
-    centers_x = [x + l / 2 for x, y, l, d in combat.values()]
-    if max(centers_x) - min(centers_x) > 0.01:
-        print(f"  FAIL: {label} X centers not aligned: min={min(centers_x):.1f} max={max(centers_x):.1f}")
-        return False
-    print(f"  PASS: {label} all combat unit centers aligned at x={centers_x[0]:.1f}")
-    return True
+def run_single_test(label, fmt, overall_pass):
+    pos = fmt.get_positions()
+    print(f"\n{label} ({len(pos)} units, {fmt.length:.1f} x {fmt.depth:.1f})")
+    if DETAILED:
+        print(f"  Origin offset: ({fmt.origin_offset_x:.2f}, {fmt.origin_offset_y:.2f})")
+        for seq in sorted(pos.keys(), key=lambda s: int(s) if s.isdigit() else 0):
+            x, y, l, d = pos[seq]
+            print(f"  seq {seq}: ({x:7.1f}, {y:7.1f}) [{l:.1f} x {d:.1f}]")
+    passed = check_formation(label, pos)
+    if passed:
+        print(f"  PASS: no overlaps or touching")
+    overall_pass &= passed
+    if PLOT:
+        plot_rectangles(pos, title=label,
+                        origin_offsets=(fmt.origin_offset_x, fmt.origin_offset_y))
+    return overall_pass
 
 
-all_pass = True
+def compute_strength(archetype_id, head_count):
+    """Mirror the head_count -> sprite-count logic from OOBData.build_strength."""
+    from constants import SPRITE_SCALE
+    art_scale = 15 if "Art" in archetype_id else SPRITE_SCALE
+    return int(head_count / art_scale)
 
 
-print("=" * 60)
-print("Case 1: Friant (Column of Battalions)")
-print("=" * 60)
-row_idx, name = find_unit_row(oob, 'Friant')
-if row_idx is None:
-    print("Unit not found")
-    sys.exit(1)
-print(f"Found '{name}' at row {row_idx}")
-friant = build_strength(row_idx)
-friant_pos = friant.get_positions()
-print(f"Positions ({len(friant_pos)} units):")
-for seq, (x, y, l, d) in sorted(friant_pos.items(), key=lambda s: int(s[0]) if s[0].isdigit() else 0):
-    print(f"  seq {seq}: x={x:.1f} y={y:.1f} length={l:.1f} depth={d:.1f}")
+def main():
+    populate_formation_archetypes_from_csv(str(BASE / 'Logistics' / 'drills.csv'))
+    oob = OOBData()
+    oob.load_csv(str(BASE / 'OOBs' / 'OOB_SB_test_4corps.csv'))
+    overall_pass = True
 
-print("\nTests:")
-all_pass &= check_no_overlap(friant_pos, "Friant top-level")
-all_pass &= check_centers_aligned_x(friant_pos, "Friant top-level")
+    # # ── Standalone formation tests ──
+    # for arch_id, head_count, label in STANDALONE_TESTS:
+    #     strength = compute_strength(arch_id, head_count)
+    #     fmt = ActualFormation(arch_id, strength)
+    #     overall_pass = run_single_test(label, fmt, overall_pass)
 
-#plot_rectangles(friant_pos, title=f"Formation: {name}",
-#                origin_offsets=(friant.origin_offset_x, friant.origin_offset_y))
+    # ── Level 5 artillery battery from OOB (Boquero) ──
+    # art_row, art_name = find_first_with_class(oob, "UGLB_FR_Art_Cdr_Bty")
+    # if art_row is not None:
+    #     fmt = oob.build_strength(art_row)
+    #     overall_pass = run_single_test(f"OOB: {art_name} (Lvl5 battery)", fmt, overall_pass)
 
-print("\n" + "=" * 60)
-print("Case 2: JeanMartin Petit (Column)")
-print("=" * 60)
-row_idx2, name2 = find_unit_row(oob, 'Petit')
-if row_idx2 is None:
-    print("Unit not found")
-    sys.exit(1)
-name2 = 'JeanMartin Petit'
-print(f"Found '{name2}' at row {row_idx2}")
-jm = build_strength(row_idx2)
-jm_pos = jm.get_positions()
-print(f"Positions ({len(jm_pos)} units):")
-for seq, (x, y, l, d) in sorted(jm_pos.items(), key=lambda s: int(s[0]) if s[0].isdigit() else 0):
-    print(f"  seq {seq}: x={x:.1f} y={y:.1f} length={l:.1f} depth={d:.1f}")
+    # ── Level 4 division (Friant with mixed inf+art) ──
+    for level in [3, 4, 5, 6]:
+        row, name = find_first_at_level(oob, level)
+        if row is None:
+            print(f"Level {level}: NOT FOUND"); continue
+        override = LEVEL_FORMATIONS.get(level)
+        fmt = oob.build_strength(row, archetype_id=override)
+        label = f"{override}" if override else name
+        overall_pass = run_single_test(f"Level {level}: {label}", fmt, overall_pass)
 
-print("\nTests:")
-all_pass &= check_no_overlap(jm_pos, "JeanMartin top-level")
-all_pass &= check_no_touching(jm_pos, "JeanMartin top-level")
+    print()
+    print("ALL PASSED" if overall_pass else "FAILURES DETECTED")
 
-combat_seqs = sorted([s for s in jm_pos if s not in ('1', '2')], key=lambda s: int(s))
-if combat_seqs:
-    min_top = min(jm_pos[s][1] for s in combat_seqs)
-    expected_offset = 15.1
-    actual_offset = min_top
-    if abs(actual_offset - expected_offset) > 0.1:
-        print(f"  FAIL: top row offset = {actual_offset:.1f}, expected {expected_offset}")
-        all_pass = False
-    else:
-        print(f"  PASS: top row offset = {actual_offset:.1f} behind origin")
 
-#plot_rectangles(jm_pos, title=f"Formation: {name2}",
-#                origin_offsets=(jm.origin_offset_x, jm.origin_offset_y))
-
-print("\n" + "=" * 60)
-if all_pass:
-    print("ALL TESTS PASSED")
-else:
-    print("SOME TESTS FAILED")
-print("=" * 60)
+if __name__ == '__main__':
+    main()

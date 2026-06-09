@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal, QMimeData, QByteArray
 from PySide6.QtGui import QBrush, QColor, QDrag, QFont, QDragEnterEvent, QDragMoveEvent, QDropEvent
 from core.oob_model import OOBData
 from gui.oob_generate_dialog import GenerateSubtreeDialog, GenerateSubtreeConfirmDialog
-from constants import TREE_SIDE_1_BG, TREE_SIDE_2_BG, TREE_INDICATOR_PLACED, TREE_INDICATOR_UNPLACED
+from constants import TREE_SIDE_1_BG, TREE_SIDE_2_BG
 import pandas as pd
 import traceback
 
@@ -35,6 +35,13 @@ class OOBTreeWidget(QTreeWidget):
     zoom_to_unit_requested = Signal(int)
     filter_count_changed = Signal(int, int)  # visible_count, total_count
     unit_moved = Signal(list)  # list of source row indices that were moved
+
+    @staticmethod
+    def _set_read_only_check(item: QTreeWidgetItem, state: int) -> None:
+        item.setCheckState(0, state)
+        flags = item.flags()
+        flags &= ~Qt.ItemIsUserCheckable
+        item.setFlags(flags)
 
     def __init__(self, data: OOBData, parent=None):
         super().__init__(parent)
@@ -221,12 +228,13 @@ class OOBTreeWidget(QTreeWidget):
                     subtree_e = subtree_experience[idx]
                     strength_str = (str(int(subtree_s)) if subtree_s == int(subtree_s)
                                     else str(subtree_s))
-                    initial_indicator = "\u25a3" if idx in self._placed_row_indices else "\u25a2"
                     item = QTreeWidgetItem([
-                        f"{initial_indicator} {info.name}", level_info, strength_str,
+                        info.name, level_info, strength_str,
                         f"{subtree_e:.2f}", str(line_nums[idx]),
                     ])
                     item.setData(0, Qt.UserRole, idx)
+                    check_state = Qt.Checked if idx in self._placed_row_indices else Qt.Unchecked
+                    self._set_read_only_check(item, check_state)
                     item.setTextAlignment(2, Qt.AlignRight | Qt.AlignVCenter)
                     self.apply_side_colors(item, info.side)
 
@@ -313,16 +321,6 @@ class OOBTreeWidget(QTreeWidget):
             _walk(self.topLevelItem(i))
         return result
 
-    def _set_indicator(self, item, indicator, color):
-        full_text = item.text(0)
-        if full_text and full_text[0] in ("\u25a3", "\u25a2", "\u25eb"):
-            base_name = full_text[2:]
-        else:
-            base_name = full_text
-        item.setText(0, f"{indicator} {base_name}")
-        item.setData(0, Qt.UserRole + 2, indicator)
-        item.setForeground(0, QBrush(color))
-
     def refresh_indicators_and_visibility(self):
         all_items = self._collect_all_items()
         matching = set()
@@ -338,28 +336,28 @@ class OOBTreeWidget(QTreeWidget):
             if matches:
                 matching.add(item)
         visible = set(matching)
+        structural = set()
         for item in matching:
             parent = item.parent()
             while parent is not None:
+                if parent not in visible:
+                    structural.add(parent)
                 visible.add(parent)
                 parent = parent.parent()
         visible_count = 0
         for item in all_items:
-            row_index = item.data(0, Qt.UserRole)
-            is_placed = row_index in self._placed_row_indices
             item.setHidden(item not in visible)
-            if item in visible:
+            if item in matching:
                 visible_count += 1
-            if is_placed:
-                indicator = "\u25a3"
-                color = TREE_INDICATOR_PLACED
+            is_placed = item.data(0, Qt.UserRole) in self._placed_row_indices
+            if item in structural:
+                self._set_read_only_check(item, Qt.PartiallyChecked)
+            elif is_placed:
+                self._set_read_only_check(item, Qt.Checked)
             elif item in matching:
-                indicator = "\u25a2"
-                color = TREE_INDICATOR_UNPLACED
+                self._set_read_only_check(item, Qt.Unchecked)
             else:
-                indicator = "\u25eb"
-                color = TREE_INDICATOR_UNPLACED
-            self._set_indicator(item, indicator, color)
+                self._set_read_only_check(item, Qt.PartiallyChecked)
         self.filter_count_changed.emit(visible_count, self._total_unit_count)
 
     def set_placed_row_indices(self, row_indices: set) -> None:

@@ -5,7 +5,7 @@ import traceback
 import numpy as np
 import pandas as pd
 from io import StringIO
-from typing import Tuple, List, Optional, Dict, Any, NamedTuple
+from typing import Tuple, List, Optional, Dict, Set, Any, NamedTuple
 import os
 
 from constants import (
@@ -448,14 +448,23 @@ class OOBData:
     def unit_info(self, row_index: int) -> UnitInfo:
         """Return a typed snapshot of the common fields for a row."""
         row = self.get_row(row_index)
+        csv_formation = str(row.get("Formation") if pd.notna(row.get("Formation")) else "")
+        resolved_formation = self._resolve_formation(row_index, csv_formation)
         return UnitInfo(
             row_index=row_index,
             name=str(row.get("NAME1", f"Unit {row_index}")),
             side=int(row.get("SIDE 1") if pd.notna(row.get("SIDE 1")) else 1),
             level=self.get_level(row_index),
-            formation=str(row.get("Formation") if pd.notna(row.get("Formation")) else ""),
+            formation=resolved_formation,
             head_count=int(row.get("Head Count") if pd.notna(row.get("Head Count")) else 0),
         )
+
+    def _resolve_formation(self, row_index: int, csv_formation: str) -> str:
+        """Return the subtype-resolved formation for *row_index* if cached, else *csv_formation*."""
+        for (ri, archetype_id, _), af in self._formation_cache.items():
+            if ri == row_index and af is not None:
+                return archetype_id
+        return csv_formation
 
     def get_direct_children(self, row_index: int, exclude_supply: bool = True) -> List[int]:
         """Return indices of rows that are exactly one level below ``row_index``.
@@ -508,22 +517,99 @@ class OOBData:
             archetype_id = str(sub_row.get("Formation", "") or "")
         if level >= 6:
             head_count = int(sub_row.get("Head Count", 0) or 0)
+            art_scale = 15 if "Art" in archetype_id else SPRITE_SCALE
             result = ActualFormation(
                 archetype_id=archetype_id,
-                strength=int(head_count / SPRITE_SCALE),
+                strength=int(head_count / art_scale),
             )
             self._formation_cache[cache_key] = result
             return result
         direct_children = self.get_direct_children(row_index, exclude_supply=True)
         archetype = FormationArchetype.formations.get(archetype_id) if archetype_id else None
-        if level < 3 and allow_top_level_formation_fallback:
-            child_formation = archetype_id
-        else:
-            child_formation = archetype.sub_form if archetype and archetype.sub_form else None
-        sub_formations: List[Optional[ActualFormation]] = [None, None] + [
-            self.build_strength(idx, archetype_id=child_formation) for idx in direct_children
-        ]
-        result = ActualFormation(archetype_id=archetype_id, strength=sub_formations)
+        default_child_form = archetype.sub_form if archetype and archetype.sub_form else None
+
+        def _detect_unit_type(class_val: str) -> str:
+            """Detect unit type from CLASS column substring."""
+            class_up = class_val.upper()
+            if "_INF_" in class_up:
+                return "1"
+            if "_CAV_" in class_up:
+                return "2"
+            if "_ART_" in class_up:
+                return "3"
+            return "0"
+
+        # Collect all available slots from the archetype layout (seq >= 3)
+        all_slots = []
+        if archetype:
+            for seq_str, (grid_row, grid_col, pos_info) in archetype.full_strength_layout.items():
+                seq_num = int(seq_str)
+                if seq_num < 3:
+                    continue
+                subtype = pos_info.get('subtype') or "1"
+                per_cell_form = pos_info.get('subformation')
+                all_slots.append((seq_str, subtype, per_cell_form))
+
+        # Sort slots by seq number (natural formation order: front rows first)
+        all_slots.sort(key=lambda s: int(s[0]))
+
+        # Assign children to slots based on subtype matching
+        slot_to_child: Dict[str, int] = {}  # seq_str -> child_idx
+        used_children: Set[int] = set()
+        used_slot_seqs: Set[str] = set()
+
+        # First pass: subtype matching
+        for seq_str, subtype, per_cell_form in all_slots:
+            if subtype is None:
+                continue
+            for child_idx, child_row_idx in enumerate(direct_children):
+                if child_idx in used_children:
+                    continue
+                child_row = self.get_row(child_row_idx)
+                child_type = _detect_unit_type(str(child_row.get("CLASS", "")))
+                if child_type == subtype:
+                    slot_to_child[seq_str] = child_idx
+                    used_children.add(child_idx)
+                    used_slot_seqs.add(seq_str)
+                    break
+
+        # Second pass: fill remaining slots with unassigned children in order
+        next_child = 0
+        for seq_str, subtype, per_cell_form in all_slots:
+            if seq_str in used_slot_seqs:
+                continue
+            while next_child < len(direct_children) and next_child in used_children:
+                next_child += 1
+            if next_child < len(direct_children):
+                slot_to_child[seq_str] = next_child
+                used_children.add(next_child)
+                used_slot_seqs.add(seq_str)
+                next_child += 1
+
+        # Build sub_formations list and child_row_indices
+        max_seq = max((int(s) for s in used_slot_seqs), default=0)
+        sub_formations: List[Optional[ActualFormation]] = [None, None]
+        child_row_indices: List[Optional[int]] = [None, None]
+        for seq_num in range(3, max_seq + 1):
+            seq_str = str(seq_num)
+            if seq_str in slot_to_child:
+                child_idx = slot_to_child[seq_str]
+                child_row_idx = direct_children[child_idx]
+                layout_info = archetype.full_strength_layout.get(seq_str) if archetype else None
+                per_cell_form = layout_info[2].get('subformation') if layout_info else None
+                if level < 3 and allow_top_level_formation_fallback:
+                    child_form = archetype_id
+                elif per_cell_form and per_cell_form != default_child_form:
+                    child_form = per_cell_form
+                else:
+                    child_form = default_child_form
+                sub_formations.append(self.build_strength(child_row_idx, archetype_id=child_form))
+                child_row_indices.append(child_row_idx)
+            else:
+                sub_formations.append(None)
+                child_row_indices.append(None)
+        result = ActualFormation(archetype_id=archetype_id, strength=sub_formations,
+                                 child_row_indices=child_row_indices)
         self._formation_cache[cache_key] = result
         return result
 

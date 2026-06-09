@@ -4,7 +4,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QEvent, QPoint
 from core.oob_model import OOBData
-from gui.oob_dropdowns import has_dropdown, get_formation_options, get_weapon_options
+from gui.oob_dropdowns import (
+    has_dropdown, get_formation_options, get_weapon_options,
+    get_unitglobal_class_options, get_gfxpack_options,
+)
 import pandas as pd
 
 DISCOURAGED_FIELDS = {
@@ -94,6 +97,10 @@ class OOBDetailsWidget(QWidget):
             return get_formation_options(row_dict)
         elif column == "Weapon":
             return get_weapon_options(row_dict)
+        elif column == "CLASS":
+            return get_unitglobal_class_options()
+        elif column in ("FLAGS", "FLAG2"):
+            return get_gfxpack_options()
         return []
 
     def eventFilter(self, obj, event):

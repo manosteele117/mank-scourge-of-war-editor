@@ -95,6 +95,7 @@ class FilesTab(QWidget):
     file_changed = Signal(str, str)  # config_key, file_path
     template_toggled = Signal(str, bool)  # file_path, enabled
     reload_templates = Signal()
+    load_defaults_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,24 +128,27 @@ class FilesTab(QWidget):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
-    def _create_files_section(self) -> QGroupBox:
-        group = QGroupBox("Files")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
+    def _create_files_section(self) -> QFrame:
+        frame = QFrame()
+        frame.setFrameShape(QFrame.Shape.StyledPanel)
+        frame.setStyleSheet("""
+            QFrame {
                 border: 1px solid #444444;
                 border-radius: 4px;
-                margin-top: 12px;
-                padding-top: 16px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
             }
         """)
-        layout = QVBoxLayout(group)
+        layout = QVBoxLayout(frame)
         layout.setSpacing(8)
+
+        header = QHBoxLayout()
+        files_title = QLabel("Files")
+        files_title.setStyleSheet("font-weight: bold; font-size: 12px;")
+        header.addWidget(files_title)
+        header.addStretch()
+        load_defaults_btn = QPushButton("Load Game Defaults")
+        load_defaults_btn.clicked.connect(self.load_defaults_requested.emit)
+        header.addWidget(load_defaults_btn)
+        layout.addLayout(header)
 
         self._add_entry("OOB", "oob", layout,
                         "CSV Files (*.csv)", "order of battle")
@@ -158,12 +162,12 @@ class FilesTab(QWidget):
         self._add_separator(layout)
         self._add_entry("GFX", "gfx", layout,
                         "CSV Files (*.csv)", "graphics definitions")
+        self._add_entry("GFXPACK", "gfxpack", layout,
+                        "CSV Files (*.csv)", "graphics pack definitions")
         self._add_entry("UnitGlobal", "unitglobal", layout,
                         "CSV Files (*.csv)", "unit global attributes")
-        self._add_entry("UnitModel", "unitmodel", layout,
-                        "CSV Files (*.csv)", "unit model definitions")
 
-        return group
+        return frame
 
     def _create_templates_section(self) -> QGroupBox:
         group = QGroupBox("Template Files")
@@ -277,3 +281,19 @@ class FilesTab(QWidget):
         if config_key in self._entries:
             return self._entries[config_key].get_path()
         return ""
+
+    def apply_game_defaults(self, base_dir: str):
+        """Auto-load all logistics files from the given game base directory."""
+        FILE_MAP = [
+            ("drills", "Logistics/drills.csv"),
+            ("rifles", "Logistics/rifles.csv"),
+            ("artillery", "Logistics/artillery.csv"),
+            ("gfx", "Logistics/gfx.csv"),
+            ("gfxpack", "Logistics/gfxpack.csv"),
+            ("unitglobal", "Logistics/unitglobal.csv"),
+        ]
+        for key, rel_path in FILE_MAP:
+            full_path = os.path.join(base_dir, rel_path)
+            if os.path.isfile(full_path):
+                self.set_entry_path(key, full_path)
+                self.file_changed.emit(key, full_path)

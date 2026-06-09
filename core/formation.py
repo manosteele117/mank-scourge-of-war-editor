@@ -80,9 +80,11 @@ class FormationArchetype:
 
 
 class ActualFormation:
-    def __init__(self, archetype_id: str, strength: list[Self] | int):
+    def __init__(self, archetype_id: str, strength: list[Self] | int,
+                 child_row_indices: list[int] | None = None):
         self.archetype = FormationArchetype.formations[archetype_id]
         self.strength = strength
+        self.child_row_indices = child_row_indices
         self.full_strength_layout = FormationArchetype.formations[archetype_id].full_strength_layout
         self.length = None
         self.depth = None
@@ -99,8 +101,10 @@ class ActualFormation:
         layout: dict[int, tuple[float, float]] = {}
         for seq, location in self.full_strength_layout.items():
             if isinstance(self.strength, list):
-                if int(seq) <= len(self.strength):
-                    layout[seq] = location
+                idx = int(seq) - 1
+                if 0 <= idx < len(self.strength):
+                    if int(seq) <= 2 or self.strength[idx] is not None:
+                        layout[seq] = location
             elif isinstance(self.strength, int):
                 if int(seq) <= self.strength:
                     layout[seq] = location
@@ -124,13 +128,14 @@ class ActualFormation:
 
         for seq in sorted_seqs:
             try:
-                if seq in ['1', '2']:
+                if seq in ['1', '2'] and isinstance(self.strength, list):
                     self.subunit_dimensions[seq] = 2.5, 1.8
                 elif isinstance(self.strength, list) and int(seq) <= len(self.strength):
                     subunit = self.strength[int(seq) - 1]
-                    if (subunit is None):
+                    if subunit is None:
                         self.subunit_dimensions[seq] = 2.5, 1.8
-                    self.subunit_dimensions[seq] = subunit.get_dimensions()
+                    else:
+                        self.subunit_dimensions[seq] = subunit.get_dimensions()
                 else:
                     # 0,0 is hack because spacing is already taken into account, this should only effect level 6 units. 
                     # Certain formations are still off, like columns in particular for some reason. But much closer than before
@@ -143,9 +148,10 @@ class ActualFormation:
 
         row_max_depth = {}
         col_max_length = {}
+        per_row_dist = {}
 
         for seq in sorted_seqs:
-            grid_x, grid_y, _ = rebased_layout[seq]
+            grid_x, grid_y, pos_info = rebased_layout[seq]
             length, depth = self.subunit_dimensions[seq]
             if grid_x not in row_max_depth:
                 row_max_depth[grid_x] = depth
@@ -155,25 +161,30 @@ class ActualFormation:
                 col_max_length[grid_y] = length
             else:
                 col_max_length[grid_y] = max(col_max_length[grid_y], length)
+            cell_row_dist = float(str(pos_info.get('row_dist', base_row_dist)).rstrip('+'))
+            override = cell_row_dist - base_row_dist
+            if override > 0:
+                per_row_dist[grid_x] = max(per_row_dist.get(grid_x, 0), override)
 
-        all_grid_x = sorted(row_max_depth.keys())
-        all_grid_y = sorted(col_max_length.keys())
+        origin_row, origin_col, _ = origin_data
+        all_grid_x = list(range(0 - origin_row, self.archetype.rows - origin_row))
+        all_grid_y = list(range(0 - origin_col, self.archetype.columns - origin_col))
 
         row_offsets = {0: 0}
         for gx in [g for g in all_grid_x if g > 0]:
             prev_gx = max((g for g in all_grid_x if g < gx), default=0)
-            row_offsets[gx] = row_offsets[prev_gx] + row_max_depth[prev_gx] + base_row_dist
+            row_offsets[gx] = row_offsets[prev_gx] + row_max_depth.get(prev_gx, 0) + base_row_dist + per_row_dist.get(gx, 0) / 2
         for gx in reversed([g for g in all_grid_x if g < 0]):
             next_gx = min((g for g in all_grid_x if g > gx), default=0)
-            row_offsets[gx] = row_offsets[next_gx] - row_max_depth[gx] - base_row_dist
+            row_offsets[gx] = row_offsets[next_gx] - row_max_depth.get(next_gx, 0) - base_row_dist - per_row_dist.get(next_gx, 0) / 2
 
         col_offsets = {0: 0}
         for gy in [g for g in all_grid_y if g > 0]:
             prev_gy = max((g for g in all_grid_y if g < gy), default=0)
-            col_offsets[gy] = col_offsets[prev_gy] + max(col_max_length[prev_gy], col_max_length[gy]) + base_col_dist
+            col_offsets[gy] = col_offsets[prev_gy] + (col_max_length.get(prev_gy, 0) + col_max_length.get(gy, 0)) / 2 + base_col_dist
         for gy in reversed([g for g in all_grid_y if g < 0]):
             next_gy = min((g for g in all_grid_y if g > gy), default=0)
-            col_offsets[gy] = col_offsets[next_gy] - max(col_max_length[next_gy], col_max_length[gy]) - base_col_dist
+            col_offsets[gy] = col_offsets[next_gy] - (col_max_length.get(next_gy, 0) + col_max_length.get(gy, 0)) / 2 - base_col_dist
 
         for seq in sorted_seqs:
             grid_x, grid_y, pos_info = rebased_layout[seq]

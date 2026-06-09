@@ -20,7 +20,9 @@ from gui.oob_shared_toolbar import OOBSharedToolbar
 from gui.oob_map_view import OOBMapWidget
 from gui.oob_scenario_tab import ScenarioTab
 from gui.oob_files_tab import FilesTab
-from gui.oob_dropdowns import load_rifles, load_artillery
+from gui.oob_dropdowns import (
+    load_rifles, load_artillery, load_gfx, load_unitglobal, load_gfxpack,
+)
 
 
 def apply_dark_theme(app: QApplication) -> None:
@@ -236,6 +238,7 @@ class OOBViewer(QMainWindow):
         self.files_tab.file_changed.connect(self._on_file_changed)
         self.files_tab.template_toggled.connect(self._on_template_toggled)
         self.files_tab.reload_templates.connect(self._on_load_templates)
+        self.files_tab.load_defaults_requested.connect(self._on_load_game_defaults)
         self.right_tab_widget.addTab(self.files_tab, "Files/Settings")
 
         # Scan template files and load with enabled state
@@ -253,6 +256,12 @@ class OOBViewer(QMainWindow):
             load_rifles(self.config["rifles"])
         if self.config.get("artillery"):
             load_artillery(self.config["artillery"])
+        if self.config.get("gfx"):
+            load_gfx(self.config["gfx"])
+        if self.config.get("unitglobal"):
+            load_unitglobal(self.config["unitglobal"])
+        if self.config.get("gfxpack"):
+            load_gfxpack(self.config["gfxpack"])
 
         if self.config.get("map-ini"):
             self.right_tab_widget.setCurrentWidget(self.map_viewer)
@@ -273,7 +282,7 @@ class OOBViewer(QMainWindow):
 
         # Initialize FilesTab with saved config values
         for key in ("oob", "drills", "rifles", "artillery", "gfx",
-                    "unitglobal", "unitmodel"):
+                    "gfxpack", "unitglobal"):
             path = self.config.get(key)
             if path:
                 self.files_tab.set_entry_path(key, path)
@@ -296,7 +305,7 @@ class OOBViewer(QMainWindow):
             parser = configparser.ConfigParser()
             parser.add_section("paths")
             for key in ("map-ini", "drills", "oob", "rifles", "artillery",
-                        "gfx", "unitglobal", "unitmodel"):
+                        "gfx", "gfxpack", "unitglobal"):
                 parser.set("paths", key, "")
             with open(config_path, "w") as f:
                 parser.write(f)
@@ -305,7 +314,7 @@ class OOBViewer(QMainWindow):
         return {
             key: parser.get("paths", key, fallback="")
             for key in ("map-ini", "drills", "oob", "rifles", "artillery",
-                        "gfx", "unitglobal", "unitmodel",
+                        "gfx", "gfxpack", "unitglobal",
                         "template_files_enabled")
         }
 
@@ -341,8 +350,36 @@ class OOBViewer(QMainWindow):
             load_rifles(file_path)
         elif config_key == "artillery":
             load_artillery(file_path)
+        elif config_key == "gfx":
+            load_gfx(file_path)
+            self.scenario.refresh_objectives()
+        elif config_key == "unitglobal":
+            load_unitglobal(file_path)
+        elif config_key == "gfxpack":
+            load_gfxpack(file_path)
         elif config_key == "map-ini":
             self.map_viewer.load_map_from_ini(file_path)
+
+    def _on_load_game_defaults(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Game Executable", "", "Executables (*.exe)")
+        if not path:
+            return
+        exe_name = os.path.basename(path).lower()
+        exe_dir = os.path.dirname(path)
+        if exe_name == "sow64.exe":
+            base_dir = os.path.join(exe_dir, "Base")
+        elif exe_name == "sowgbx64.exe":
+            base_dir = os.path.join(exe_dir, "BaseGB")
+        elif os.path.isdir(os.path.join(exe_dir, "Base")):
+            base_dir = os.path.join(exe_dir, "Base")
+        elif os.path.isdir(os.path.join(exe_dir, "BaseGB")):
+            base_dir = os.path.join(exe_dir, "BaseGB")
+        else:
+            QMessageBox.warning(self, "Load Game Defaults",
+                                f"Could not determine game data directory from:\n{path}")
+            return
+        self.files_tab.apply_game_defaults(base_dir)
 
     def save_csv_dialog(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save OOB CSV", "", "CSV Files (*.csv)")
@@ -364,8 +401,7 @@ class OOBViewer(QMainWindow):
         else:
             map_name = ""
 
-        oob_status_path = self.status_label.text()
-        oob_filename = os.path.basename(oob_status_path) if oob_status_path else ""
+        oob_filename = os.path.basename(self._oob_path) if self._oob_path else ""
 
         objectives = self.map_viewer.get_all_objectives_data()
 

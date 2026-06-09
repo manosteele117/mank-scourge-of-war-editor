@@ -1,7 +1,8 @@
-"""Dropdown option providers for details view columns.
+"""Dropdown option providers for details view and scenario tab columns.
 
-Loads rifles.csv and artillery.csv into module-level caches and provides
-functions to resolve valid dropdown options per column.
+Loads rifles.csv, artillery.csv, gfx.csv, unitglobal.csv, and gfxpack.csv
+into module-level caches and provides functions to resolve valid dropdown
+options per column.
 """
 import csv
 from typing import Dict, List, Optional
@@ -11,9 +12,12 @@ from constants import HIERARCHY_COLS
 # ── caches ──────────────────────────────────────────────────────────────────
 _rifles_cache: Dict[str, str] = {}       # ID -> Name
 _artillery_cache: Dict[str, str] = {}    # ID -> Name
+_gfx_cache: Dict[str, str] = {}          # Name -> Name (first column of gfx.csv)
+_unitglobal_cache: Dict[str, str] = {}   # Class -> Class (first column of unitglobal.csv)
+_gfxpack_cache: Dict[str, str] = {}      # Name -> Name (first column of gfxpack.csv)
 
 # Columns that support dropdowns
-DROPDOWN_COLUMNS = {"Formation", "Weapon"}
+DROPDOWN_COLUMNS = {"Formation", "Weapon", "Class", "FLAGS", "FLAG2"}
 
 
 def has_dropdown(column_name: str) -> bool:
@@ -55,6 +59,57 @@ def load_artillery(file_path: str) -> None:
                 _artillery_cache[rid] = name
     except Exception as e:
         print(f"Error loading artillery: {e}")
+
+
+def load_gfx(file_path: str) -> None:
+    global _gfx_cache
+    _gfx_cache = {}
+    try:
+        with open(file_path, "r", encoding="cp1252") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row:
+                    continue
+                name = row[0].strip()
+                if not name or name == "Name":
+                    continue
+                _gfx_cache[name] = name
+    except Exception as e:
+        print(f"Error loading gfx: {e}")
+
+
+def load_unitglobal(file_path: str) -> None:
+    global _unitglobal_cache
+    _unitglobal_cache = {}
+    try:
+        with open(file_path, "r", encoding="cp1252") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row:
+                    continue
+                name = row[0].strip()
+                if not name or name == "Class":
+                    continue
+                _unitglobal_cache[name] = name
+    except Exception as e:
+        print(f"Error loading unitglobal: {e}")
+
+
+def load_gfxpack(file_path: str) -> None:
+    global _gfxpack_cache
+    _gfxpack_cache = {}
+    try:
+        with open(file_path, "r", encoding="cp1252") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row:
+                    continue
+                name = row[0].strip()
+                if not name or name == "Name":
+                    continue
+                _gfxpack_cache[name] = name
+    except Exception as e:
+        print(f"Error loading gfxpack: {e}")
 
 
 def get_rifles_cache() -> Dict[str, str]:
@@ -99,6 +154,21 @@ def get_weapon_options(row_dict: dict) -> List[str]:
     options = list(_rifles_cache.keys()) + list(_artillery_cache.keys())
     options.sort()
     return options
+
+
+def get_unitglobal_class_options() -> List[str]:
+    """Return class IDs from loaded unitglobal file."""
+    return sorted(_unitglobal_cache.keys())
+
+
+def get_gfxpack_options() -> List[str]:
+    """Return sprite names from loaded gfxpack file."""
+    return sorted(_gfxpack_cache.keys())
+
+
+def get_gfx_options() -> List[str]:
+    """Return sprite names from loaded gfx file."""
+    return sorted(_gfx_cache.keys())
 
 
 def get_option_label(column: str, option_id: str) -> str:

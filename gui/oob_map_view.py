@@ -23,6 +23,8 @@ from constants import get_side_color
 from gui.zoomable_view import ZoomableGraphicsView
 from gui.oob_objective_item import MapObjectiveItem
 
+DEBUG_FORMATION_PLOT = True  # Set True to pop a matplotlib plot after each formation change
+
 
 class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
     """Custom graphics view for the minimap with placement mode support."""
@@ -1402,6 +1404,17 @@ class OOBMapWidget(QWidget):
             parent_formation = self.build_strength(parent_row_index, archetype_id=formation_type)
             positions = parent_formation.get_positions()
 
+            if DEBUG_FORMATION_PLOT:
+                from core.utilities import plot_rectangles
+                level = self.oob_data.get_level(parent_row_index)
+                if level < 5:
+                    plot_rectangles(
+                        positions,
+                        title=f"{formation_type} — {parent_row.get('Name', '')}",
+                        origin_offsets=(parent_formation.origin_offset_x,
+                                        parent_formation.origin_offset_y),
+                    )
+
             parent_unit_item.formation = formation_type
             parent_unit_item.refresh_dimensions(archetype_id=formation_type)
             parent_unit_item._rebuild_scene_geometry()
@@ -1420,13 +1433,19 @@ class OOBMapWidget(QWidget):
 
             seq_to_sub = {1: (parent_row_index, parent_row)}
 
-            # Direct children only, excluding supply wagons.
-            direct_children = self.oob_data.get_direct_children(
-                parent_row_index, exclude_supply=True)
+            # Use subtype-matched child order from the formation (child_row_indices)
+            # which is aligned with parent_formation.strength: index N-1 = seq N
+            if parent_formation.child_row_indices:
+                matched_children = parent_formation.child_row_indices
+            else:
+                matched_children = [None, None] + self.oob_data.get_direct_children(
+                    parent_row_index, exclude_supply=True)
 
-            for i, sub_row_index in enumerate(direct_children):
+            for i, sub_row_index in enumerate(matched_children):
+                if sub_row_index is None:
+                    continue
                 sub_row = self.oob_data.get_row(sub_row_index)
-                seq_to_sub[i + 2] = (sub_row_index, sub_row)
+                seq_to_sub[i] = (sub_row_index, sub_row)
 
             units_to_select = [parent_unit_item]
 
@@ -1469,21 +1488,23 @@ class OOBMapWidget(QWidget):
                     scene_pos = self.world_to_scene(world_x, world_y)
                     unit_item.setPos(scene_pos)
                     unit_item.setZValue(7 - (self.oob_data.get_level(sub_row_index) or 1))
-                    if child_formation_type:
-                        unit_item.formation = child_formation_type
+                    actual_form = self._get_child_formation(parent_formation, seq)
+                    if actual_form:
+                        unit_item.formation = actual_form
                     unit_item.refresh_dimensions()
                     unit_item._rebuild_scene_geometry()
                     units_to_select.append(unit_item)
 
                     sub_level = self.oob_data.get_level(sub_row_index)
-                    if sub_level is not None and sub_level < 6 and child_formation_type:
-                        self.apply_formation(unit_item, child_formation_type)
+                    if sub_level is not None and sub_level < 6 and actual_form:
+                        self.apply_formation(unit_item, actual_form)
                 else:
+                    actual_form = self._get_child_formation(parent_formation, seq)
                     sub_info = self.oob_data.unit_info(sub_row_index)
                     sub_info = sub_info._replace(
                         name=str(sub_row.get("NAME1", f"Unit {sub_row_index}")),
                         side=int(sub_row.get("SIDE 1", 1)),
-                        formation=child_formation_type or sub_row.get("Formation", ""),
+                        formation=actual_form or child_formation_type or sub_row.get("Formation", ""),
                         head_count=int(sub_row.get("Head Count", 0) or 0),
                     )
                     self._place_unit(sub_info, world_x, world_y)
@@ -1493,8 +1514,8 @@ class OOBMapWidget(QWidget):
                         units_to_select.append(unit_item)
 
                     sub_level = self.oob_data.get_level(sub_row_index)
-                    if sub_level is not None and sub_level < 6 and child_formation_type:
-                        self.apply_formation(unit_item, child_formation_type)
+                    if sub_level is not None and sub_level < 6 and actual_form:
+                        self.apply_formation(unit_item, actual_form)
 
             for unit in units_to_select:
                 unit.setSelected(True)
@@ -1505,6 +1526,15 @@ class OOBMapWidget(QWidget):
                 f"Failed to apply formation '{formation_type}':\n\n"
                 f"Error: {type(e).__name__}: {str(e)}\n\n"
                 f"Stack trace:\n{traceback.format_exc()}")
+
+    def _get_child_formation(self, parent_formation, seq):
+        """Return the drill_id for the child at *seq* in the formation tree, or None."""
+        if (isinstance(parent_formation.strength, list)
+                and 0 < seq <= len(parent_formation.strength)):
+            child = parent_formation.strength[seq - 1]
+            if child is not None and hasattr(child, 'archetype'):
+                return child.archetype.drill_id
+        return None
 
     def _on_zoom_to_selected(self):
         items = self.minimap_scene.selectedItems()

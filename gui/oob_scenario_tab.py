@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 
+from gui.oob_dropdowns import get_gfx_options
+
 
 MAPLOCATIONS_HEADER = [
     "Name", "ID", "Priority", "Type", "AI",
@@ -23,6 +25,13 @@ NAME_COL = MAPLOCATIONS_HEADER.index("Name")
 ID_COL = MAPLOCATIONS_HEADER.index("ID")
 LOC_X_COL = MAPLOCATIONS_HEADER.index("loc x")
 LOC_Z_COL = MAPLOCATIONS_HEADER.index("loc z")
+SPRITE_COL = MAPLOCATIONS_HEADER.index("Sprite")
+ARMY1_COL = MAPLOCATIONS_HEADER.index("Army1")
+ARMY2_COL = MAPLOCATIONS_HEADER.index("Army2")
+ARMY3_COL = MAPLOCATIONS_HEADER.index("Army3")
+
+COMBO_COLUMNS = {PRIORITY_COL, SPRITE_COL, ARMY1_COL, ARMY2_COL, ARMY3_COL}
+PRIORITY_OPTIONS = ["major", "minor"]
 
 
 class ScenarioTab(QWidget):
@@ -52,10 +61,6 @@ class ScenarioTab(QWidget):
         obj_title.setStyleSheet("font-weight: bold; font-size: 12px;")
         obj_header.addWidget(obj_title)
         obj_header.addStretch(1)
-
-        self.place_btn = QPushButton("Place Objective")
-        self.place_btn.clicked.connect(self._on_place_objective)
-        obj_header.addWidget(self.place_btn)
 
         self.export_btn = QPushButton("Export Map Locations")
         self.export_btn.clicked.connect(self._on_export)
@@ -103,6 +108,7 @@ class ScenarioTab(QWidget):
         self._updating_table = True
         try:
             objectives = self.map_viewer.get_all_objectives_data()
+            gfx_options = get_gfx_options()
 
             self.objectives_table.setRowCount(len(objectives))
             for row, obj in enumerate(objectives):
@@ -110,14 +116,17 @@ class ScenarioTab(QWidget):
                 fields = obj["fields"]
 
                 for col, col_name in enumerate(MAPLOCATIONS_HEADER):
-                    if col == PRIORITY_COL:
+                    if col in COMBO_COLUMNS:
                         combo = QComboBox()
                         combo.setEditable(True)
-                        combo.addItems(["major", "minor"])
-                        current_val = str(fields.get(col_name, "major"))
+                        if col == PRIORITY_COL:
+                            combo.addItems(PRIORITY_OPTIONS)
+                        else:
+                            combo.addItems(gfx_options)
+                        current_val = str(fields.get(col_name, ""))
                         combo.setCurrentText(current_val)
                         combo.currentTextChanged.connect(
-                            lambda text, oid=obj_id: self._on_priority_changed(oid, text))
+                            lambda text, oid=obj_id, cn=col_name: self._on_combo_changed(oid, cn, text))
                         self.objectives_table.setCellWidget(row, col, combo)
                     else:
                         value = str(fields.get(col_name, ""))
@@ -154,7 +163,7 @@ class ScenarioTab(QWidget):
     def _on_cell_changed(self, item: QTableWidgetItem):
         if self._updating_table:
             return
-        if item.column() == PRIORITY_COL:
+        if item.column() in COMBO_COLUMNS:
             return
 
         row = item.row()
@@ -209,12 +218,12 @@ class ScenarioTab(QWidget):
         else:
             obj_data["fields"][col_name] = new_value
 
-    def _on_priority_changed(self, obj_id: int, new_value: str):
+    def _on_combo_changed(self, obj_id: int, field_name: str, new_value: str):
         if self._updating_table:
             return
         obj_data = self.map_viewer.get_objective_data(obj_id)
         if obj_data is not None:
-            obj_data["fields"]["Priority"] = new_value
+            obj_data["fields"][field_name] = new_value
 
     # ── Context menu on objectives table ─────────────────────────
 
@@ -235,11 +244,6 @@ class ScenarioTab(QWidget):
         menu.addAction("Delete Objective",
                        lambda: self.map_viewer.remove_objective(obj_id))
         menu.exec(self.objectives_table.viewport().mapToGlobal(pos))
-
-    # ── Place button ─────────────────────────────────────────────
-
-    def _on_place_objective(self):
-        self.map_viewer.start_objective_placement()
 
     # ── Export ───────────────────────────────────────────────────
 
