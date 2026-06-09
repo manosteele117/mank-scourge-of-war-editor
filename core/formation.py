@@ -198,6 +198,13 @@ class ActualFormation:
                 length, depth = self.subunit_dimensions[seq]
                 positions[seq] = (x_offset - length / 2, y_offset, length, depth)
 
+        if '2' in positions and '1' in positions:
+            shift_y = -positions['2'][1]
+            if shift_y != 0:
+                for seq in positions:
+                    x, y, l, d = positions[seq]
+                    positions[seq] = (x, y + shift_y, l, d)
+
         return positions
 
     def get_dimensions(self) -> tuple:
@@ -212,7 +219,7 @@ class ActualFormation:
         depth = max(all_bottom) - min(all_top)
         self.length = length
         self.depth = depth
-        origin = layout.get('1')
+        origin = layout.get('2') or layout.get('1')
         if origin:
             ox, oy = origin[0], origin[1]
             self.origin_offset_x = ox - min(all_left)
