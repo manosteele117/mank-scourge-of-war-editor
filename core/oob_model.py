@@ -12,6 +12,7 @@ from constants import (
     COLUMN_ALIASES, HIERARCHY_COLS, LEVEL_NAMES, INT_COLUMNS, REQUIRED_COLUMNS,
     SPRITE_SCALE,
 )
+from core.formation import detect_unit_type
 
 
 class UnitInfo(NamedTuple):
@@ -63,6 +64,7 @@ class OOBData:
         self.df: Optional[pd.DataFrame] = None
         self.filepath: Optional[str] = None
         self._original_headers: Optional[Dict[str, str]] = None
+        self._original_df: Optional[pd.DataFrame] = None
         self._alias_map = {}
         self._build_alias_map()
 
@@ -160,6 +162,8 @@ class OOBData:
         for col in HIERARCHY_COLS + INT_COLUMNS:
             if col in self.df.columns:
                 self.df[col] = pd.to_numeric(self.df[col], errors="coerce").astype("Int64")
+
+        self._original_df = self.df.copy(deep=True)
 
         missing = [c for c in REQUIRED_COLUMNS if c not in self.df.columns]
         if missing:
@@ -326,27 +330,35 @@ class OOBData:
         self._ensure_df().at[row_index, column] = value
         self._invalidate_caches()
 
+    def reset_row_from_original(self, line_number: int) -> bool:
+        """Reset a row's field values to the original loaded state, matched by line_number.
+
+        Restores all columns except hierarchy columns (SIDE 1, ARMY 2, CORPS 3,
+        DIV 4, BGDE 5, BTN 6) which would require reparenting.
+        Returns True if the row was found and reset, False otherwise.
+        """
+        if self._original_df is None or self.df is None:
+            return False
+        orig_match = self._original_df[self._original_df["line_number"] == line_number]
+        if orig_match.empty:
+            return False
+        current_match = self.df[self.df["line_number"] == line_number]
+        if current_match.empty:
+            return False
+        orig_idx = orig_match.index[0]
+        curr_idx = current_match.index[0]
+        cols_to_reset = [c for c in self.df.columns if c not in HIERARCHY_COLS]
+        for col in cols_to_reset:
+            self.df.at[curr_idx, col] = self._original_df.at[orig_idx, col]
+        self._invalidate_caches()
+        return True
+
     def _ensure_df(self) -> pd.DataFrame:
         if self.df is None:
             raise ValueError("No data loaded")
         return self.df
 
     # ── Hierarchy utilities ────────────────────────────────────────
-
-    def get_level_from_hierarchy(self, row: pd.Series) -> Optional[int]:
-        """Legacy row-based level lookup. Prefer get_level(row_index)."""
-        return self.get_level(self._row_index_of(row))
-
-    def get_hierarchy_key(self, row: pd.Series, row_index: int) -> Tuple[int, ...]:
-        """Legacy row+index-based hierarchy key lookup. Prefer get_hierarchy_key(row_index)."""
-        return self.get_hierarchy_key_by_index(row_index)
-
-    def _row_index_of(self, row: pd.Series) -> int:
-        """Recover the positional index of a row from a Series returned by iloc."""
-        try:
-            return int(row.name)
-        except Exception:
-            return -1
 
     def get_level(self, row_index: int) -> Optional[int]:
         """Return the hierarchy level (1-6) of ``row_index``, or None if unknown."""
@@ -528,17 +540,6 @@ class OOBData:
         archetype = FormationArchetype.formations.get(archetype_id) if archetype_id else None
         default_child_form = archetype.sub_form if archetype and archetype.sub_form else None
 
-        def _detect_unit_type(class_val: str) -> str:
-            """Detect unit type from CLASS column substring."""
-            class_up = class_val.upper()
-            if "_INF_" in class_up:
-                return "1"
-            if "_CAV_" in class_up:
-                return "2"
-            if "_ART_" in class_up:
-                return "3"
-            return "0"
-
         # Collect all available slots from the archetype layout (seq >= 3)
         all_slots = []
         if archetype:
@@ -573,7 +574,7 @@ class OOBData:
                 if child_idx in used_children:
                     continue
                 child_row = self.get_row(child_row_idx)
-                child_type = _detect_unit_type(str(child_row.get("CLASS", "")))
+                child_type = detect_unit_type(str(child_row.get("CLASS", "")))
                 if child_type == subtype:
                     slot_to_child[seq_str] = child_idx
                     used_children.add(child_idx)
@@ -644,18 +645,6 @@ class OOBData:
                 stack.extend(children)
         self._subordinate_cache[row_index] = result
         return result
-
-    def delete_unit(self, row_index: int) -> int:
-        self._ensure_built()
-        if self.get_level(row_index) is None:
-            raise ValueError(f"Line {row_index + 2}: Cannot determine hierarchy level")
-        rows_to_delete = self.get_subordinate_row_indices(row_index)
-        keep_mask = np.ones(len(self.df), dtype=bool)
-        keep_mask[rows_to_delete] = False
-        self.df = self.df.loc[keep_mask].reset_index(drop=True)
-        self._invalidate_caches()
-        self._build_adjacency_index()
-        return len(rows_to_delete)
 
     def delete_rows(self, row_indices: set) -> int:
         self._ensure_built()
@@ -958,195 +947,6 @@ class OOBData:
         if potential_descendant == ancestor:
             return False
         return potential_descendant in self._collect_subtree_rows(ancestor)
-
-    def insert_unit(self, parent_row_index: int, template_path: str) -> int:
-        """Insert a new unit from a template CSV under the given parent.
-
-        The template CSV should have a single data row (plus header).
-        The hierarchy columns are set based on the parent's key, with the
-        next available index for the child level.
-
-        Returns the row index of the newly inserted unit.
-        """
-        self._ensure_built()
-        parent_level = self.get_level(parent_row_index)
-        if parent_level is None:
-            raise ValueError("Cannot determine parent level")
-        if parent_level >= 6:
-            raise ValueError("Cannot add sub-units to a level 6 unit")
-
-        parent_key = self.get_hierarchy_key_by_index(parent_row_index)
-        child_level_idx = parent_level  # 0-indexed: parent_level=4 (Division) -> child at index 4 (BGDE 5)
-        child_col = HIERARCHY_COLS[child_level_idx]
-
-        # Find next available index for this child level
-        existing_children = self._parent_to_children.get(parent_row_index, [])
-        if existing_children:
-            existing_indices = []
-            for c in existing_children:
-                val = self.df.at[c, child_col]
-                if pd.notna(val) and val != 0:
-                    existing_indices.append(int(val))
-            next_index = max(existing_indices) + 1 if existing_indices else 1
-        else:
-            next_index = 1
-
-        # Load the template CSV
-        template_df = pd.read_csv(template_path, encoding="cp1252", dtype=str)
-        template_df = self._normalize_columns(template_df)
-
-        # Convert numeric columns
-        for col in HIERARCHY_COLS + INT_COLUMNS:
-            if col in template_df.columns:
-                template_df[col] = pd.to_numeric(template_df[col], errors="coerce").astype("Int64")
-
-        # Build the new hierarchy key
-        new_key = list(parent_key)
-        new_key[child_level_idx] = next_index
-
-        # Set hierarchy columns in the template
-        for i, hcol in enumerate(HIERARCHY_COLS):
-            if hcol in template_df.columns:
-                template_df[hcol] = new_key[i]
-            else:
-                template_df[hcol] = new_key[i]
-
-        # Append to the DataFrame
-        new_row_idx = len(self.df)
-        self.df = pd.concat([self.df, template_df], ignore_index=True)
-
-        self._invalidate_caches()
-        self._build_adjacency_index()
-        return new_row_idx
-
-    def insert_formation(self, parent_row_index: int, composition: Dict[str, Any]) -> List[int]:
-        """Insert a commander and composed sub-units under the given parent.
-
-        ``composition`` has the form:
-        {
-            "commander_name": "Gen. Smith",
-            "commander_level": 5,
-            "commander_formation": "Infantry",
-            "sub_units": [
-                {"template": "lvl6_infantry", "count": 3},
-                {"template": "lvl6_cavalry", "count": 1},
-            ]
-        }
-
-        Returns a list of row indices of all newly inserted units.
-        """
-        self._ensure_built()
-        parent_level = self.get_level(parent_row_index)
-        if parent_level is None:
-            raise ValueError("Cannot determine parent level")
-        if parent_level >= 6:
-            raise ValueError("Cannot add sub-units to a level 6 unit")
-
-        parent_key = self.get_hierarchy_key_by_index(parent_row_index)
-        child_level_idx = parent_level
-        child_col = HIERARCHY_COLS[child_level_idx]
-
-        # Find next available index
-        existing_children = self._parent_to_children.get(parent_row_index, [])
-        if existing_children:
-            existing_indices = []
-            for c in existing_children:
-                val = self.df.at[c, child_col]
-                if pd.notna(val) and val != 0:
-                    existing_indices.append(int(val))
-            next_index = max(existing_indices) + 1 if existing_indices else 1
-        else:
-            next_index = 1
-
-        templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "units")
-        inserted_indices = []
-
-        # Insert the commander
-        cmd_level = composition.get("commander_level", parent_level + 1)
-        cmd_name = composition.get("commander_name", "New Commander")
-        cmd_formation = composition.get("commander_formation", "")
-
-        cmd_key = list(parent_key)
-        cmd_key[child_level_idx] = next_index
-        next_index += 1
-
-        cmd_row = {col: "" for col in self.df.columns}
-        cmd_row["NAME1"] = cmd_name
-        cmd_row["Formation"] = cmd_formation
-        for i, hcol in enumerate(HIERARCHY_COLS):
-            cmd_row[hcol] = cmd_key[i]
-
-        # Determine a template for the commander
-        cmd_template_name = f"lvl{cmd_level}_infantry.csv" if cmd_level <= 6 else "lvl6_infantry.csv"
-        cmd_template_path = os.path.join(templates_dir, cmd_template_name)
-        if os.path.exists(cmd_template_path):
-            cmd_template_df = pd.read_csv(cmd_template_path, encoding="cp1252", dtype=str)
-            cmd_template_df = self._normalize_columns(cmd_template_df)
-            for col in HIERARCHY_COLS + INT_COLUMNS:
-                if col in cmd_template_df.columns:
-                    cmd_template_df[col] = pd.to_numeric(cmd_template_df[col], errors="coerce").astype("Int64")
-            if len(cmd_template_df) > 0:
-                for col in cmd_row:
-                    if col in cmd_template_df.columns:
-                        val = cmd_template_df.iloc[0][col]
-                        if pd.notna(val):
-                            cmd_row[col] = val
-
-        # Ensure hierarchy columns are set
-        for i, hcol in enumerate(HIERARCHY_COLS):
-            cmd_row[hcol] = cmd_key[i]
-
-        cmd_df = pd.DataFrame([cmd_row])
-        for col in HIERARCHY_COLS + INT_COLUMNS:
-            if col in cmd_df.columns:
-                cmd_df[col] = pd.to_numeric(cmd_df[col], errors="coerce").astype("Int64")
-
-        cmd_row_idx = len(self.df)
-        self.df = pd.concat([self.df, cmd_df], ignore_index=True)
-        inserted_indices.append(cmd_row_idx)
-
-        # Insert sub-units
-        sub_units = composition.get("sub_units", [])
-        for sub in sub_units:
-            template_name = sub.get("template", "lvl6_infantry.csv")
-            count = sub.get("count", 1)
-            template_path = os.path.join(templates_dir, template_name)
-            if not os.path.exists(template_path):
-                continue
-
-            template_df = pd.read_csv(template_path, encoding="cp1252", dtype=str)
-            template_df = self._normalize_columns(template_df)
-            for col in HIERARCHY_COLS + INT_COLUMNS:
-                if col in template_df.columns:
-                    template_df[col] = pd.to_numeric(template_df[col], errors="coerce").astype("Int64")
-
-            for i in range(count):
-                if len(template_df) > 0:
-                    new_row = template_df.iloc[0].to_dict()
-                else:
-                    new_row = {col: "" for col in self.df.columns}
-
-                sub_key = list(cmd_key)
-                sub_key[child_level_idx + 1] = i + 1 if child_level_idx + 1 < 6 else 1
-                for j in range(child_level_idx + 2, 6):
-                    sub_key[j] = 0
-
-                for hcol in HIERARCHY_COLS:
-                    col_idx = HIERARCHY_COLS.index(hcol)
-                    new_row[hcol] = sub_key[col_idx]
-
-                sub_df = pd.DataFrame([new_row])
-                for col in HIERARCHY_COLS + INT_COLUMNS:
-                    if col in sub_df.columns:
-                        sub_df[col] = pd.to_numeric(sub_df[col], errors="coerce").astype("Int64")
-
-                sub_row_idx = len(self.df)
-                self.df = pd.concat([self.df, sub_df], ignore_index=True)
-                inserted_indices.append(sub_row_idx)
-
-        self._invalidate_caches()
-        self._build_adjacency_index()
-        return inserted_indices
 
     def load_templates(self, templates_dir: str) -> List[Dict[str, Any]]:
         """Load all template units from CSV files in templates_dir.

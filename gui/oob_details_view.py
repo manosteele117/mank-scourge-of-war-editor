@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
-    QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QComboBox,
-    QLineEdit, QLabel,
+    QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout, QComboBox,
+    QLineEdit, QLabel, QPushButton,
 )
 from PySide6.QtCore import Qt, Signal, QEvent, QPoint
 from core.oob_model import OOBData
@@ -37,6 +37,7 @@ class OOBDetailsWidget(QWidget):
         self.details_table.setShowGrid(False)
         self.details_table.setAlternatingRowColors(True)
         self.details_table.itemChanged.connect(self.on_detail_cell_changed)
+        self.details_table.installEventFilter(self)
 
         layout = QVBoxLayout(self)
         self.setStyleSheet("""
@@ -104,6 +105,9 @@ class OOBDetailsWidget(QWidget):
         return []
 
     def eventFilter(self, obj, event):
+        if event.type() == QEvent.Wheel:
+            if obj is self.details_table or isinstance(obj, QComboBox):
+                return True
         if (event.type() == QEvent.FocusIn
                 and obj.property("discouraged")):
             self._show_warning(obj)
@@ -162,6 +166,7 @@ class OOBDetailsWidget(QWidget):
                         combo.currentTextChanged.connect(
                             lambda text, c=combo: self._on_widget_changed(c, text)
                         )
+                        combo.installEventFilter(self)
                         self.details_table.setCellWidget(i, 1, combo)
                         self._widgets[i] = combo
                         continue
@@ -171,15 +176,43 @@ class OOBDetailsWidget(QWidget):
                 if column in DISCOURAGED_FIELDS:
                     edit.installEventFilter(self)
                     edit.setProperty("discouraged", True)
+                if column in ("SIDE 1", "ARMY 2", "CORPS 3", "DIV 4", "BGDE 5", "BTN 6"):
+                    edit.setReadOnly(True)
                 edit.editingFinished.connect(
                     lambda e=edit: self._on_widget_changed(e, e.text())
                 )
-                self.details_table.setCellWidget(i, 1, edit)
-                self._widgets[i] = edit
+                if column == "line_number":
+                    edit.setReadOnly(True)
+                    has_original = (
+                        self.data._original_df is not None
+                        and not pd.isna(val)
+                        and str(val).strip() != ""
+                    )
+                    reset_btn = QPushButton("Reset")
+                    reset_btn.setToolTip(
+                        "Reset this unit's stats to original OOB values. "
+                        "Hierarchy/location values are not reverted."
+                    )
+                    reset_btn.setFixedWidth(50)
+                    reset_btn.setEnabled(has_original)
+                    if has_original:
+                        reset_btn.clicked.connect(self._on_reset_clicked)
+                    container = QWidget()
+                    container_layout = QHBoxLayout(container)
+                    container_layout.setContentsMargins(0, 0, 0, 0)
+                    container_layout.setSpacing(4)
+                    container_layout.addWidget(edit)
+                    container_layout.addWidget(reset_btn)
+                    self.details_table.setCellWidget(i, 1, container)
+                    self._widgets[i] = container
+                else:
+                    self.details_table.setCellWidget(i, 1, edit)
+                    self._widgets[i] = edit
             self.details_table.resizeRowsToContents()
             self.details_table.resizeColumnToContents(0)
         finally:
             self.details_table.blockSignals(False)
+        self.details_table.clearFocus()
 
     def _on_widget_changed(self, widget, text: str) -> None:
         if self.current_row_index is None or self.data.df is None:
@@ -190,6 +223,17 @@ class OOBDetailsWidget(QWidget):
         new_value = text if text else pd.NA
         self.data.set_cell(self.current_row_index, field_name, new_value)
         self.detail_changed.emit(field_name)
+
+    def _on_reset_clicked(self) -> None:
+        if self.current_row_index is None or self.data.df is None:
+            return
+        row = self.data.df.iloc[self.current_row_index]
+        line_number = row.get("line_number")
+        if pd.isna(line_number) or str(line_number).strip() == "":
+            return
+        self.data.reset_row_from_original(int(line_number))
+        self.populate(self.current_row_index)
+        self.detail_changed.emit("")
 
     def clear(self) -> None:
         self.current_row_index = None

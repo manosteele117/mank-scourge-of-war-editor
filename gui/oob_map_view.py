@@ -349,10 +349,6 @@ class MapUnitItem(QGraphicsItem):
         self.setRotation(0)
         self._rebuild_scene_geometry()
 
-    def set_label(self, label: str):
-        self._label = label
-        self.update()
-
     def refresh_dimensions(self, archetype_id: str = None):
         formation_id = archetype_id if archetype_id is not None else self.formation
         if not formation_id or formation_id not in FormationArchetype.formations:
@@ -555,10 +551,6 @@ class MapUnitItem(QGraphicsItem):
             sp = self.map_widget.world_to_scene(wx, wy)
             p = sp - item_pos
             self._scene_dots.append((p.x(), p.y()))
-
-    def update_from_world(self):
-        self._rebuild_scene_geometry()
-        self.update()
 
     def boundingRect(self):
         if self.level < 6:
@@ -840,12 +832,6 @@ class OOBMapWidget(QWidget):
                                  f"Failed to load map configuration:\n{ini_path}\n\n"
                                  f"Error: {type(e).__name__}: {str(e)}\n\n"
                                  f"Stack trace:\n{traceback.format_exc()}")
-
-    def load_formations_dialog(self, csv_path=None):
-        # current_dir = os.path.curdir
-        csv_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Formations CSV", "", "CSV Files (*.csv)")
-        self._load_formations(csv_path)
 
     def _load_formations(self, csv_path):
         if not csv_path:

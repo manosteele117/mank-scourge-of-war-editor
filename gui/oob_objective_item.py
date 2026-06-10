@@ -77,10 +77,6 @@ class MapObjectiveItem(QGraphicsItem):
         self._scene_path = self._build_star_path(
             local_center.x(), local_center.y(), outer, inner, self.NUM_POINTS)
 
-    def update_from_world(self):
-        self._rebuild_scene_geometry()
-        self.update()
-
     def boundingRect(self) -> QRectF:
         if self._scene_path is not None and not self._scene_path.isEmpty():
             return self._scene_path.boundingRect().adjusted(-5, -5, 5, 5)

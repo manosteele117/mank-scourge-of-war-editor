@@ -85,6 +85,3 @@ class OOBSharedToolbar(QWidget):
             self.filter_button.setStyleSheet(
                 "QPushButton { color: #b388ff; font-weight: bold; }"
             )
-
-    def set_regen_indices_enabled(self, enabled):
-        self.regen_indices_button.setEnabled(enabled)

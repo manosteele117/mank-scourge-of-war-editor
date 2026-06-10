@@ -334,12 +334,6 @@ class OOBViewer(QMainWindow):
         with open(config_path, "w") as f:
             parser.write(f)
 
-    def load_csv_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open OOB CSV", "", "CSV Files (*.csv)")
-        if path:
-            self.load_csv(path)
-            self._save_config(oob=path)
-
     def _on_file_changed(self, config_key: str, file_path: str):
         self._save_config(**{config_key: file_path})
         if config_key == "oob":
@@ -632,9 +626,6 @@ class OOBViewer(QMainWindow):
         import json
         state = self.files_tab.get_template_enabled_state()
         self._save_config(template_files_enabled=json.dumps(state))
-
-    def on_zoom_to_unit(self, row_index: int):
-        self.map_viewer.on_unit_double_clicked(row_index)
 
     def _toggle_layout_view(self, visible: bool):
         self.visual.setVisible(visible)

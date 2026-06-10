@@ -70,11 +70,6 @@ class OOBVisualWidget(QWidget):
             self.scene.setSceneRect(padded)
             self.view.reset_view(padded)
 
-    def clear(self) -> None:
-        self.scene.clear()
-        self.items_by_row_index.clear()
-        self._highlighted.clear()
-
     def highlight_unit(self, row_index: int) -> None:
         if row_index is None:
             new_set: set = set()
@@ -95,12 +90,6 @@ class OOBVisualWidget(QWidget):
             if isinstance(item, UnitGraphicsItem):
                 item.set_highlighted(True)
         self._highlighted = new_set & all_current
-
-    def _on_reset_view(self) -> None:
-        rect = self.scene.itemsBoundingRect().adjusted(
-            -self.LAYOUT_PADDING, -self.LAYOUT_PADDING,
-            self.LAYOUT_PADDING, self.LAYOUT_PADDING)
-        self.view.reset_view(rect)
 
     def _on_regenerate_view(self) -> None:
         self.populate()

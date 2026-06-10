@@ -121,10 +121,6 @@ class UnitGraphicsItem(QGraphicsItem):
         self.is_hovered = False
         self.update()
 
-    def set_selected(self, selected: bool):
-        self.is_selected = selected
-        self.update()
-
     def set_highlighted(self, highlighted: bool):
         self.is_highlighted = highlighted
         self.update()

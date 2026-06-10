@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QFileDialog, QSizePolicy, QScrollArea, QGroupBox, QCheckBox,
+    QSplitter,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
@@ -12,11 +13,12 @@ class FileEntry(QWidget):
 
     file_loaded = Signal(str, str)  # config_key, file_path
 
-    def __init__(self, label: str, config_key: str, file_filter: str = "All Files (*)",
+    def __init__(self, label: str, hint: str, config_key: str, file_filter: str = "All Files (*)",
                  parent=None):
         super().__init__(parent)
         self.config_key = config_key
         self.file_filter = file_filter
+        self.hint = hint
         self._current_path = ""
 
         layout = QHBoxLayout(self)
@@ -34,7 +36,7 @@ class FileEntry(QWidget):
 
     def _open_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Open {self.config_key}", "", self.file_filter)
+            self, f"Open - {self.hint}", "", self.file_filter)
         if path:
             self.set_path(path)
             self.file_loaded.emit(self.config_key, path)
@@ -82,12 +84,6 @@ class TemplateFileEntry(QWidget):
     def is_enabled(self) -> bool:
         return self._enabled
 
-    def set_enabled(self, enabled: bool):
-        self._enabled = enabled
-        self.checkbox.blockSignals(True)
-        self.checkbox.setChecked(enabled)
-        self.checkbox.blockSignals(False)
-
 
 class FilesTab(QWidget):
     """Files/Settings tab for loading and managing file paths."""
@@ -128,46 +124,47 @@ class FilesTab(QWidget):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
-    def _create_files_section(self) -> QFrame:
-        frame = QFrame()
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-        frame.setStyleSheet("""
-            QFrame {
+    def _create_files_section(self) -> QGroupBox:
+        group = QGroupBox("Files")
+        group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
                 border: 1px solid #444444;
                 border-radius: 4px;
+                margin-top: 12px;
+                padding-top: 16px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
             }
         """)
-        layout = QVBoxLayout(frame)
+        layout = QVBoxLayout(group)
         layout.setSpacing(8)
 
-        header = QHBoxLayout()
-        files_title = QLabel("Files")
-        files_title.setStyleSheet("font-weight: bold; font-size: 12px;")
-        header.addWidget(files_title)
-        header.addStretch()
         load_defaults_btn = QPushButton("Load Game Defaults")
         load_defaults_btn.clicked.connect(self.load_defaults_requested.emit)
-        header.addWidget(load_defaults_btn)
-        layout.addLayout(header)
+        layout.addWidget(load_defaults_btn)
 
         self._add_entry("OOB", "oob", layout,
                         "CSV Files (*.csv)", "order of battle")
         self._add_separator(layout)
-        self._add_entry("Formations/Drills", "drills", layout,
-                        "CSV Files (*.csv)", "drill definitions")
-        self._add_entry("Rifles", "rifles", layout,
-                        "CSV Files (*.csv)", "rifle tables")
-        self._add_entry("Artillery", "artillery", layout,
-                        "CSV Files (*.csv)", "artillery tables")
+        self._add_entry("drills.csv", "drills", layout,
+                        "CSV Files (*.csv)", "Formation Definitions (drills.csv)")
+        self._add_entry("rifles.csv", "rifles", layout,
+                        "CSV Files (*.csv)", "Weapon Options (rifles.csv)")
+        self._add_entry("artillery.csv", "artillery", layout,
+                        "CSV Files (*.csv)", "Artillery Options (artillery.csv)")
         self._add_separator(layout)
-        self._add_entry("GFX", "gfx", layout,
-                        "CSV Files (*.csv)", "graphics definitions")
-        self._add_entry("GFXPACK", "gfxpack", layout,
-                        "CSV Files (*.csv)", "graphics pack definitions")
-        self._add_entry("UnitGlobal", "unitglobal", layout,
-                        "CSV Files (*.csv)", "unit global attributes")
+        self._add_entry("gfx.csv", "gfx", layout,
+                        "CSV Files (*.csv)", "Defines Sprite IDs - used to set objective icons (gfx.csv)")
+        self._add_entry("gfxpack.csv", "gfxpack", layout,
+                        "CSV Files (*.csv)", "Defines Sprite IDs - mostly for flags (gfxpack.csv)")
+        self._add_entry("unitglobal.csv", "unitglobal", layout,
+                        "CSV Files (*.csv)", "Defines unit classes (unitglobal.csv)")
 
-        return frame
+        return group
 
     def _create_templates_section(self) -> QGroupBox:
         group = QGroupBox("Template Files")
@@ -185,7 +182,16 @@ class FilesTab(QWidget):
                 padding: 0 6px;
             }
         """)
-        self._templates_layout = QVBoxLayout(group)
+        group_layout = QVBoxLayout(group)
+        group_layout.setSpacing(4)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        # Left panel: template entries
+        left_panel = QWidget()
+        self._templates_layout = QVBoxLayout(left_panel)
+        self._templates_layout.setContentsMargins(0, 0, 4, 0)
         self._templates_layout.setSpacing(4)
 
         self._templates_placeholder = QLabel("No template files found.")
@@ -198,7 +204,67 @@ class FilesTab(QWidget):
         self.reload_button.clicked.connect(self.reload_templates.emit)
         self._templates_layout.addWidget(self.reload_button)
 
+        self._templates_layout.addStretch()
+
+        # Right panel: help text
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(4, 0, 0, 0)
+
+        help_label = QLabel(self._get_template_help_text())
+        help_label.setWordWrap(True)
+        help_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        help_label.setStyleSheet("""
+            QLabel {
+                border: 1px solid #444444;
+                border-radius: 4px;
+                background-color: #2a2a2a;
+                color: #cccccc;
+                padding: 8px;
+                font-family: monospace;
+                font-size: 11px;
+            }
+        """)
+        right_layout.addWidget(help_label)
+
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([300, 300])
+
+        group_layout.addWidget(splitter)
+
         return group
+
+    def _get_template_help_text(self) -> str:
+        return """
+Template Files Help
+====================
+
+Toggle
+------
+Check/uncheck templates to include or exclude
+them when generating units/formations.
+
+Adding Files
+------------
+Place new CSV files in templates/units/ and
+click Reload Templates.
+
+Creating Your Own
+-----------------
+You can create your own template files using
+any CSV editor. Use the column headers from
+templates/headers/oob_headers.csv as a
+reference.
+
+Share Your Templates
+--------------------
+If you create useful templates, share them on 
+GitHub and they can be added to the tool.
+
+Ideally would have templates available for specific
+mods, eras, campaigns.
+"""
 
     def scan_template_files(self, templates_dir: str, enabled_state: dict = None):
         """Scan templates_dir for CSV files and create toggle entries.
@@ -253,15 +319,10 @@ class FilesTab(QWidget):
 
     def _add_entry(self, label: str, config_key: str, layout: QVBoxLayout,
                    file_filter: str, hint: str):
-        entry = FileEntry(label, config_key, file_filter)
+        entry = FileEntry(label, hint, config_key, file_filter)
         entry.file_loaded.connect(self._on_file_loaded)
         self._entries[config_key] = entry
         layout.addWidget(entry)
-
-        hint_label = QLabel(f"  {hint}")
-        hint_label.setStyleSheet("color: #666666; font-size: 10px; font-weight: normal;")
-        hint_label.setContentsMargins(0, -4, 0, 4)
-        layout.addWidget(hint_label)
 
     def _add_separator(self, layout: QVBoxLayout):
         sep = QFrame()
@@ -276,11 +337,6 @@ class FilesTab(QWidget):
     def set_entry_path(self, config_key: str, path: str):
         if config_key in self._entries:
             self._entries[config_key].set_path(path)
-
-    def get_entry_path(self, config_key: str) -> str:
-        if config_key in self._entries:
-            return self._entries[config_key].get_path()
-        return ""
 
     def apply_game_defaults(self, base_dir: str):
         """Auto-load all logistics files from the given game base directory."""

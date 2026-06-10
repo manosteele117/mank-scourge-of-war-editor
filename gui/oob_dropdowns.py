@@ -17,7 +17,7 @@ _unitglobal_cache: Dict[str, str] = {}   # Class -> Class (first column of unitg
 _gfxpack_cache: Dict[str, str] = {}      # Name -> Name (first column of gfxpack.csv)
 
 # Columns that support dropdowns
-DROPDOWN_COLUMNS = {"Formation", "Weapon", "Class", "FLAGS", "FLAG2"}
+DROPDOWN_COLUMNS = {"Formation", "Weapon", "CLASS", "FLAGS", "FLAG2"}
 
 
 def has_dropdown(column_name: str) -> bool:
@@ -112,14 +112,6 @@ def load_gfxpack(file_path: str) -> None:
         print(f"Error loading gfxpack: {e}")
 
 
-def get_rifles_cache() -> Dict[str, str]:
-    return _rifles_cache
-
-
-def get_artillery_cache() -> Dict[str, str]:
-    return _artillery_cache
-
-
 # ── option providers ────────────────────────────────────────────────────────
 def _get_unit_level(row_dict: dict) -> int:
     """Return the hierarchy level (1-6) of a unit based on its hierarchy columns."""
@@ -169,12 +161,3 @@ def get_gfxpack_options() -> List[str]:
 def get_gfx_options() -> List[str]:
     """Return sprite names from loaded gfx file."""
     return sorted(_gfx_cache.keys())
-
-
-def get_option_label(column: str, option_id: str) -> str:
-    """Return the display label for a dropdown option."""
-    if column == "Weapon":
-        name = _rifles_cache.get(option_id) or _artillery_cache.get(option_id)
-        if name:
-            return f"{name} ({option_id})"
-    return option_id
