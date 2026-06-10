@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal, QMimeData, QByteArray
 from PySide6.QtGui import QBrush, QColor, QDrag, QFont, QDragEnterEvent, QDragMoveEvent, QDropEvent
 from core.oob_model import OOBData
 from gui.oob_generate_dialog import GenerateSubtreeDialog, GenerateSubtreeConfirmDialog
-from constants import TREE_SIDE_1_BG, TREE_SIDE_2_BG
+from constants import TREE_SIDE_1_BG, TREE_SIDE_2_BG, apply_side_colors_to_item
 import pandas as pd
 import traceback
 
@@ -404,19 +404,11 @@ class OOBTreeWidget(QTreeWidget):
         super().drawRow(painter, option, index)
 
     def apply_side_colors(self, item: QTreeWidgetItem, side: int) -> None:
-        if side == 1:
-            background = QColor(TREE_SIDE_1_BG)
-            foreground = QColor("#ffffff")
-        elif side == 2:
-            background = QColor(TREE_SIDE_2_BG)
-            foreground = QColor("#ffffff")
-        else:
-            return
-
-        for col in range(self.columnCount()):
-            item.setBackground(col, QBrush(background))
-            item.setForeground(col, QBrush(foreground))
-            item.setData(col, Qt.UserRole + 1, background)
+        apply_side_colors_to_item(item, side)
+        if side in (1, 2):
+            background = QColor(TREE_SIDE_1_BG if side == 1 else TREE_SIDE_2_BG)
+            for col in range(self.columnCount()):
+                item.setData(col, Qt.UserRole + 1, background)
 
     def find_item_by_row_index(self, row_index: int) -> QTreeWidgetItem | None:
         def _search(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
@@ -1217,19 +1209,7 @@ class OOBTreeWidget(QTreeWidget):
             # Assign unique ID
             template_id = str(resolved_row.get("ID", "")).strip()
             if template_id and "ID" in self.data.df.columns:
-                used_indices = set()
-                for val in self.data.df["ID"].dropna():
-                    val_str = str(val).strip()
-                    if val_str.startswith(template_id) and val_str != template_id:
-                        suffix = val_str[len(template_id):]
-                        try:
-                            used_indices.add(int(suffix))
-                        except ValueError:
-                            pass
-                idx = 1
-                while idx in used_indices:
-                    idx += 1
-                resolved_row["ID"] = f"{template_id}{idx}"
+                resolved_row["ID"] = self.data._next_unique_id(template_id)
 
             # Append to DataFrame
             new_df = pd.DataFrame([resolved_row])

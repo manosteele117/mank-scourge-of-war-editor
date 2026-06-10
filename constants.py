@@ -1,5 +1,5 @@
 from typing import List, Dict
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QBrush, QColor
 
 
 # ── Hierarchy definitions ──────────────────────────────────────────
@@ -99,3 +99,17 @@ def get_side_color(side: int, is_selected: bool = False, is_hovered: bool = Fals
     if is_highlighted:
         return base.lighter(130)
     return base
+
+
+def apply_side_colors_to_item(item, side: int) -> None:
+    """Set background/foreground colors on all columns of a QTreeWidgetItem."""
+    if side == 1:
+        bg = QColor(TREE_SIDE_1_BG)
+    elif side == 2:
+        bg = QColor(TREE_SIDE_2_BG)
+    else:
+        return
+    fg = QColor("#ffffff")
+    for col in range(item.columnCount()):
+        item.setBackground(col, QBrush(bg))
+        item.setForeground(col, QBrush(fg))

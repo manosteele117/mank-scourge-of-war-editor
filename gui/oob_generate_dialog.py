@@ -3,8 +3,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QTreeWidget, QTreeWidgetItem, QHeaderView,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor
-from constants import LEVEL_NAMES, TREE_SIDE_1_BG, TREE_SIDE_2_BG
+from constants import LEVEL_NAMES, apply_side_colors_to_item
 
 RESULT_BACK = 0
 RESULT_CONFIRM = 1
@@ -217,21 +216,9 @@ class GenerateSubtreeConfirmDialog(QDialog):
         item.setTextAlignment(3, Qt.AlignRight | Qt.AlignVCenter)
         return item
 
-    def _apply_side_color(self, item: QTreeWidgetItem, side: int) -> None:
-        if side == 1:
-            bg = QColor(TREE_SIDE_1_BG)
-        elif side == 2:
-            bg = QColor(TREE_SIDE_2_BG)
-        else:
-            return
-        fg = QColor("#ffffff")
-        for col in range(item.columnCount()):
-            item.setBackground(col, QBrush(bg))
-            item.setForeground(col, QBrush(fg))
-
     def _add_children(self, parent_item: QTreeWidgetItem, node: dict, side: int) -> None:
         item = self._create_item(node)
-        self._apply_side_color(item, side)
+        apply_side_colors_to_item(item, side)
         parent_item.addChild(item)
         for child in node.get("children", []):
             self._add_children(item, child, side)

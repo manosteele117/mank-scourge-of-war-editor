@@ -23,13 +23,13 @@ BASE = Path('C:/Steam/steamapps/common/Scourge Of War - Remastered/Base')
 # ── Test configurations ────────────────────────────────────────────
 # Each tuple: (test_name, row_index, formation_id, description)
 TEST_CASES = [
-    ("corps",             1,  "DRIL_Lvl3_Inf_Line_Corps_FR",    "Multi-row corps with overrides at gx=0"),
-    ("brigade",           3,  "DRIL_Lvl5_Inf_Column",            "Single-column brigade growth with overrides"),
-    ("brigade_line",      3,  "DRIL_Lvl5_Inf_Brig_DoubleLine_Fr", "Two-row brigade line formation"),
-    ("division",         59,  "DRIL_Lvl4_Inf_Reserves",          "Reserve column with artillery at rear"),
-    ("division_column",  59,  "DRIL_Lvl4_Inf_Column",            "Division column with all children in front"),
-    ("division_line",    59,  "DRIL_Lvl4_Inf_Column",            "Division column (line variant)"),
-    ("art_line",         70,  "DRIL_Lvl5_Art_Line",              "Artillery line — all units ahead of commander"),
+    ("corps",             1,  "DRIL_Lvl3_Inf_Line_Corps_FR",        "Multi-row corps with overrides at gx=0"),
+    ("brigade",           3,  "DRIL_Lvl5_Inf_Column",               "Single-column brigade growth with overrides"),
+    ("brigade_line",      3,  "DRIL_Lvl5_Inf_Brig_DoubleLine_Fr",   "Two-row brigade line formation"),
+    ("division",         59,  "DRIL_Lvl4_Inf_Reserves",             "Reserve column with artillery at rear"),
+    ("division_column",  59,  "DRIL_Lvl4_Inf_Column",               "Division column with all children in front"),
+    ("division_line",    59,  "DRIL_Lvl4_Inf_Div_Line_FR",          "Division line variant"),
+    ("art_line",         70,  "DRIL_Lvl5_Art_Line",                 "Artillery line — all units ahead of commander"),
 ]
 
 

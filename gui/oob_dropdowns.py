@@ -25,91 +25,63 @@ def has_dropdown(column_name: str) -> bool:
 
 
 # ── file loaders ────────────────────────────────────────────────────────────
-def load_rifles(file_path: str) -> None:
-    global _rifles_cache
-    _rifles_cache = {}
+def _load_id_name_csv(file_path: str) -> Dict[str, str]:
+    """Load a 2-column CSV (Name, ID) into {ID: Name}, skipping 'Name'/'idstring' headers."""
+    cache: Dict[str, str] = {}
     try:
         with open(file_path, "r", encoding="cp1252") as f:
-            reader = csv.reader(f)
-            for row in reader:
+            for row in csv.reader(f):
                 if len(row) < 2:
                     continue
-                name = row[0].strip()
-                rid = row[1].strip()
+                name, rid = row[0].strip(), row[1].strip()
                 if not rid or rid == "idstring" or not name or name == "Name":
                     continue
-                _rifles_cache[rid] = name
+                cache[rid] = name
     except Exception as e:
-        print(f"Error loading rifles: {e}")
+        print(f"Error loading {file_path}: {e}")
+    return cache
+
+
+def _load_single_col_csv(file_path: str, skip_header: str) -> Dict[str, str]:
+    """Load a 1-column CSV into {Name: Name}, skipping a header row."""
+    cache: Dict[str, str] = {}
+    try:
+        with open(file_path, "r", encoding="cp1252") as f:
+            for row in csv.reader(f):
+                if not row:
+                    continue
+                name = row[0].strip()
+                if not name or name == skip_header:
+                    continue
+                cache[name] = name
+    except Exception as e:
+        print(f"Error loading {file_path}: {e}")
+    return cache
+
+
+def load_rifles(file_path: str) -> None:
+    global _rifles_cache
+    _rifles_cache = _load_id_name_csv(file_path)
 
 
 def load_artillery(file_path: str) -> None:
     global _artillery_cache
-    _artillery_cache = {}
-    try:
-        with open(file_path, "r", encoding="cp1252") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) < 2:
-                    continue
-                name = row[0].strip()
-                rid = row[1].strip()
-                if not rid or rid == "idstring" or not name or name == "Name":
-                    continue
-                _artillery_cache[rid] = name
-    except Exception as e:
-        print(f"Error loading artillery: {e}")
+    _artillery_cache = _load_id_name_csv(file_path)
 
 
 def load_gfx(file_path: str) -> None:
     global _gfx_cache
-    _gfx_cache = {}
-    try:
-        with open(file_path, "r", encoding="cp1252") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if not row:
-                    continue
-                name = row[0].strip()
-                if not name or name == "Name":
-                    continue
-                _gfx_cache[name] = name
-    except Exception as e:
-        print(f"Error loading gfx: {e}")
+    _gfx_cache = _load_single_col_csv(file_path, "Name")
 
 
 def load_unitglobal(file_path: str) -> None:
     global _unitglobal_cache
-    _unitglobal_cache = {}
-    try:
-        with open(file_path, "r", encoding="cp1252") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if not row:
-                    continue
-                name = row[0].strip()
-                if not name or name == "Class":
-                    continue
-                _unitglobal_cache[name] = name
-    except Exception as e:
-        print(f"Error loading unitglobal: {e}")
+    _unitglobal_cache = _load_single_col_csv(file_path, "Class")
 
 
 def load_gfxpack(file_path: str) -> None:
     global _gfxpack_cache
-    _gfxpack_cache = {}
-    try:
-        with open(file_path, "r", encoding="cp1252") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if not row:
-                    continue
-                name = row[0].strip()
-                if not name or name == "Name":
-                    continue
-                _gfxpack_cache[name] = name
-    except Exception as e:
-        print(f"Error loading gfxpack: {e}")
+    _gfxpack_cache = _load_single_col_csv(file_path, "Name")
 
 
 # ── option providers ────────────────────────────────────────────────────────

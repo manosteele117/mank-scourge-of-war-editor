@@ -697,21 +697,8 @@ class OOBData:
         target = siblings[target_pos]
 
         # Collect all rows in both subtrees (before any mutation).
-        def collect_subtree(idx: int) -> set:
-            rows: List[int] = []
-            stack: List[int] = [idx]
-            while stack:
-                cur = stack.pop()
-                if cur in rows:
-                    continue
-                rows.append(cur)
-                for child in self._parent_to_children.get(cur, []):
-                    if child not in rows:
-                        stack.append(child)
-            return set(rows)
-
-        source_rows = collect_subtree(source)
-        target_rows = collect_subtree(target)
+        source_rows = set(self.get_subordinate_row_indices(source))
+        target_rows = set(self.get_subordinate_row_indices(target))
 
         # Swap the hierarchy column value at the move level for every row in
         # both subtrees.  Deeper levels are left untouched.
@@ -860,19 +847,7 @@ class OOBData:
             # Assign a unique ID by appending an index to the template ID
             template_id = str(new_row.get("ID", "")).strip()
             if template_id and "ID" in self.df.columns:
-                used_indices = set()
-                for val in self.df["ID"].dropna():
-                    val_str = str(val).strip()
-                    if val_str.startswith(template_id) and val_str != template_id:
-                        suffix = val_str[len(template_id):]
-                        try:
-                            used_indices.add(int(suffix))
-                        except ValueError:
-                            pass
-                idx = 1
-                while idx in used_indices:
-                    idx += 1
-                new_row["ID"] = f"{template_id}{idx}"
+                new_row["ID"] = self._next_unique_id(template_id)
 
             new_df = pd.DataFrame([new_row])
             for col in INT_COLUMNS:
@@ -881,7 +856,7 @@ class OOBData:
 
             if parent_drop:
                 # Collect target's subtree BEFORE insertion (indices will shift)
-                subtree_rows = self._collect_subtree_rows(target_row_index)
+                subtree_rows = set(self.get_subordinate_row_indices(target_row_index))
                 # Remove target from subtree set — we handle it separately
                 subtree_rows.discard(target_row_index)
 
@@ -918,7 +893,7 @@ class OOBData:
                 return new_row_idx
         else:
             # Move mode: rewrite hierarchy keys for the entire subtree
-            subtree_rows = self._collect_subtree_rows(row_index)
+            subtree_rows = set(self.get_subordinate_row_indices(row_index))
             for r in subtree_rows:
                 old_key = self.get_hierarchy_key_by_index(r)
                 new_key = new_prefix + [new_l_value] + list(old_key[source_level:])
@@ -928,25 +903,27 @@ class OOBData:
             self._build_adjacency_index()
             return True
 
-    def _collect_subtree_rows(self, row_index: int) -> set:
-        """Collect all row indices in the subtree rooted at row_index (including itself)."""
-        rows: set = set()
-        stack: List[int] = [row_index]
-        while stack:
-            cur = stack.pop()
-            if cur in rows:
-                continue
-            rows.add(cur)
-            for child in self._parent_to_children.get(cur, []):
-                if child not in rows:
-                    stack.append(child)
-        return rows
+    def _next_unique_id(self, template_id: str) -> str:
+        """Return template_id with the smallest unused numeric suffix appended."""
+        used_indices = set()
+        for val in self.df["ID"].dropna():
+            val_str = str(val).strip()
+            if val_str.startswith(template_id) and val_str != template_id:
+                suffix = val_str[len(template_id):]
+                try:
+                    used_indices.add(int(suffix))
+                except ValueError:
+                    pass
+        idx = 1
+        while idx in used_indices:
+            idx += 1
+        return f"{template_id}{idx}"
 
     def is_descendant_of(self, potential_descendant: int, ancestor: int) -> bool:
         """Check if potential_descendant is in the subtree of ancestor."""
         if potential_descendant == ancestor:
             return False
-        return potential_descendant in self._collect_subtree_rows(ancestor)
+        return potential_descendant in self.get_subordinate_row_indices(ancestor)
 
     def load_templates(self, templates_dir: str) -> List[Dict[str, Any]]:
         """Load all template units from CSV files in templates_dir.
