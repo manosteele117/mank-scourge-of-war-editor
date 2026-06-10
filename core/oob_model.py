@@ -546,7 +546,7 @@ class OOBData:
                 seq_num = int(seq_str)
                 if seq_num < 3:
                     continue
-                subtype = pos_info.get('subtype') or "1"
+                subtype = pos_info.get('subtype')
                 per_cell_form = pos_info.get('subformation')
                 all_slots.append((seq_str, subtype, per_cell_form))
 

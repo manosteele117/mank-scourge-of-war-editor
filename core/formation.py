@@ -145,38 +145,73 @@ class ActualFormation:
 
         base_row_dist = float(str(self.archetype.row_dist).rstrip('+'))
         base_col_dist = float(str(self.archetype.col_dist).rstrip('+'))
+        row_dist_plus = self.archetype.row_dist.rstrip(',').endswith('+')
+        col_dist_plus = self.archetype.col_dist.rstrip(',').endswith('+')
 
-        row_max_depth = {}
         col_max_length = {}
-        per_row_dist = {}
+        per_cell_dist = {}
+        col_row_depth = {}  # col -> {row -> depth} for per-column depth tracking
 
         for seq in sorted_seqs:
             grid_x, grid_y, pos_info = rebased_layout[seq]
             length, depth = self.subunit_dimensions[seq]
-            if grid_x not in row_max_depth:
-                row_max_depth[grid_x] = depth
-            else:
-                row_max_depth[grid_x] = max(row_max_depth[grid_x], depth)
             if grid_y not in col_max_length:
                 col_max_length[grid_y] = length
             else:
                 col_max_length[grid_y] = max(col_max_length[grid_y], length)
+            if grid_y not in col_row_depth:
+                col_row_depth[grid_y] = {}
+            col_row_depth[grid_y][grid_x] = max(col_row_depth[grid_y].get(grid_x, 0), depth)
+
+        for seq_str, (gx, gy, pos_info) in self.full_strength_layout.items():
             cell_row_dist = float(str(pos_info.get('row_dist', base_row_dist)).rstrip('+'))
             override = cell_row_dist - base_row_dist
-            if override > 0:
-                per_row_dist[grid_x] = max(per_row_dist.get(grid_x, 0), override)
+            if override != 0:
+                per_cell_dist[(gx - origin_row, gy - origin_col)] = override
 
         origin_row, origin_col, _ = origin_data
         all_grid_x = list(range(0 - origin_row, self.archetype.rows - origin_row))
         all_grid_y = list(range(0 - origin_col, self.archetype.columns - origin_col))
 
-        row_offsets = {0: 0}
-        for gx in [g for g in all_grid_x if g > 0]:
-            prev_gx = max((g for g in all_grid_x if g < gx), default=0)
-            row_offsets[gx] = row_offsets[prev_gx] + row_max_depth.get(prev_gx, 0) + base_row_dist + per_row_dist.get(gx, 0) / 2
-        for gx in reversed([g for g in all_grid_x if g < 0]):
-            next_gx = min((g for g in all_grid_x if g > gx), default=0)
-            row_offsets[gx] = row_offsets[next_gx] - row_max_depth.get(next_gx, 0) - base_row_dist - per_row_dist.get(next_gx, 0) / 2
+        propagated = {}
+        for gx in all_grid_x:
+            row_ov = 0
+            for gy in all_grid_y:
+                ov = per_cell_dist.get((gx, gy), 0)
+                if ov != 0:
+                    row_ov = ov
+                    break
+            for gy in all_grid_y:
+                if (gx, gy) in per_cell_dist:
+                    ov = per_cell_dist[(gx, gy)]
+                else:
+                    ov = row_ov
+                if gx < 0:
+                    propagated[(gx, gy)] = base_row_dist - ov
+                else:
+                    propagated[(gx, gy)] = ov if ov != 0 else base_row_dist
+
+        col_row_offsets = {}
+        for gy in all_grid_y:
+            ov_at_origin = per_cell_dist.get((0, gy), 0)
+            col_row_offsets[gy] = {0: ov_at_origin}
+            for gx in [g for g in all_grid_x if g > 0]:
+                prev_gx = max((g for g in all_grid_x if g < gx), default=0)
+                gap = propagated.get((gx, gy), base_row_dist)
+                if row_dist_plus:
+                    prev_depth = col_row_depth.get(gy, {}).get(prev_gx, 0)
+                    curr_depth = col_row_depth.get(gy, {}).get(gx, 0)
+                    gap += (prev_depth + curr_depth) / 2
+                col_row_offsets[gy][gx] = col_row_offsets[gy][prev_gx] + gap
+            for gx in reversed([g for g in all_grid_x if g < 0]):
+                next_gx = min((g for g in all_grid_x if g > gx), default=0)
+                next_ov = per_cell_dist.get((next_gx, gy), 0)
+                gap = next_ov if next_ov != 0 else base_row_dist
+                if row_dist_plus:
+                    next_depth = col_row_depth.get(gy, {}).get(next_gx, 0)
+                    curr_depth = col_row_depth.get(gy, {}).get(gx, 0)
+                    gap += (next_depth + curr_depth) / 2
+                col_row_offsets[gy][gx] = col_row_offsets[gy][next_gx] - gap
 
         col_offsets = {0: 0}
         for gy in [g for g in all_grid_y if g > 0]:
@@ -194,7 +229,7 @@ class ActualFormation:
                 positions[seq] = (-length / 2, 0, length, depth)
             else:
                 x_offset = col_offsets.get(grid_y, 0)
-                y_offset = row_offsets.get(grid_x, 0)
+                y_offset = col_row_offsets.get(grid_y, {}).get(grid_x, 0)
                 length, depth = self.subunit_dimensions[seq]
                 positions[seq] = (x_offset - length / 2, y_offset, length, depth)
 

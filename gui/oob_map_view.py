@@ -1410,7 +1410,7 @@ class OOBMapWidget(QWidget):
                 if level < 5:
                     plot_rectangles(
                         positions,
-                        title=f"{formation_type} — {parent_row.get('Name', '')}",
+                        title=f"{formation_type} —idx:{parent_row_index} {parent_row.get('Name', '')}",
                         origin_offsets=(parent_formation.origin_offset_x,
                                         parent_formation.origin_offset_y),
                     )
