@@ -190,13 +190,10 @@ class OOBTreeWidget(QTreeWidget):
                 # Leaf: own experience, or 0 fallback.
                 subtree_experience[idx] = own_exp if own_exp is not None else experiences[idx]
             else:
-                # Internal: average of non-supply children's subtree averages.
-                # If every child is a supply wagon, fall back to own.
-                child_exps = [subtree_experience[c] for c in children if not is_supply[c]]
-                if child_exps:
-                    subtree_experience[idx] = sum(child_exps) / len(child_exps)
-                else:
-                    subtree_experience[idx] = own_exp if own_exp is not None else experiences[idx]
+                # Internal: average of own experience and all children's subtree experiences.
+                all_exps = [own_exp if own_exp is not None else experiences[idx]]
+                all_exps.extend(subtree_experience[c] for c in children if not is_supply[c])
+                subtree_experience[idx] = sum(all_exps) / len(all_exps)
 
         for top in range(n_rows):
             if self.data.get_level(top) is None:
@@ -223,7 +220,8 @@ class OOBTreeWidget(QTreeWidget):
                         continue
                     hierarchy_key = self.data.get_hierarchy_key_by_index(idx)
                     info = self.data.unit_info(idx)
-                    level_info = self.data.get_hierarchy_level_name_and_index(hierarchy_key)
+                    level_info = self.data.get_hierarchy_level_name_and_index(
+                        hierarchy_key, info.class_value)
                     subtree_s = subtree_strength[idx]
                     subtree_e = subtree_experience[idx]
                     strength_str = (str(int(subtree_s)) if subtree_s == int(subtree_s)
@@ -737,7 +735,7 @@ class OOBTreeWidget(QTreeWidget):
                             }))
 
             # Save as Template
-            menu.addAction("Save as Template", self.action_save_as_template)
+            menu.addAction("Save as User Template", self.action_save_as_template)
 
             # Generate Subtree (not for level 6)
             if level is not None and level < 6:
@@ -955,7 +953,8 @@ class OOBTreeWidget(QTreeWidget):
         # Parent node info (constant throughout the flow)
         info = self.data.unit_info(row_index)
         hierarchy_key = self.data.get_hierarchy_key_by_index(row_index)
-        level_info_str = self.data.get_hierarchy_level_name_and_index(hierarchy_key)
+        level_info_str = self.data.get_hierarchy_level_name_and_index(
+            hierarchy_key, info.class_value)
         row = self.data.df.iloc[row_index]
         exp_raw = row.get("Experience", 0)
         parent_exp = float(exp_raw) if exp_raw is not None and not pd.isna(exp_raw) else 0.0
@@ -1113,7 +1112,14 @@ class OOBTreeWidget(QTreeWidget):
                 except (ValueError, TypeError):
                     side = 0
 
-                level_info_str = f"{LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else '?'} (1)"
+                level_name = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else '?'
+                if lvl == 6:
+                    class_val = str(row_dict.get("CLASS", "")).upper()
+                    if "_CAV_" in class_val:
+                        level_name = "Squadron"
+                    elif "_ART_" in class_val:
+                        level_name = "Gun"
+                level_info_str = f"{level_name} (1)"
 
                 node = {
                     "name": name,
@@ -1153,12 +1159,11 @@ class OOBTreeWidget(QTreeWidget):
             if not children:
                 node["subtree_experience"] = node.get("experience", 0.0)
             else:
-                child_exps = [c.get("subtree_experience", c.get("experience", 0.0))
-                              for c in children]
-                if child_exps:
-                    node["subtree_experience"] = sum(child_exps) / len(child_exps)
-                else:
-                    node["subtree_experience"] = node.get("experience", 0.0)
+                own_exp = node.get("experience", 0.0)
+                all_exps = [own_exp]
+                all_exps.extend(c.get("subtree_experience", c.get("experience", 0.0))
+                                for c in children)
+                node["subtree_experience"] = sum(all_exps) / len(all_exps)
 
     def _insert_preview_tree(self, parent_row_index: int, parent_key: tuple,
                               nodes: list[dict]) -> None:
@@ -1239,11 +1244,11 @@ class OOBTreeWidget(QTreeWidget):
         try:
             new_id = self.data.save_as_template(row_index, self._templates_dir)
             self.load_templates()
-            QMessageBox.information(self, "Save as Template",
+            QMessageBox.information(self, "Save as User Template",
                                     f"Saved as template '{new_id}'")
             self.unit_added.emit()
         except Exception as e:
-            QMessageBox.critical(self, "Save as Template Error",
+            QMessageBox.critical(self, "Save as User Template Error",
                                  f"Failed to save template:\n\n"
                                  f"Error: {type(e).__name__}: {str(e)}\n\n"
                                  f"Stack trace:\n{traceback.format_exc()}")

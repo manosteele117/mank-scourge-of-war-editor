@@ -76,6 +76,20 @@ FILTER_ACTIVE_COLOR = QColor("#b388ff")         # light purple (non-default filt
 # ── Game design constants ─────────────────────────────────────────
 SPRITE_SCALE: int = 6  # Head Count / SPRITE_SCALE = number of subunit sprites in a level-6 unit
 
+# ── Commander map shape constants ────────────────────────────────
+CMD_CONCENTRIC_GAP: int = 120      # gap between concentric shape outlines (world units)
+CMD_FACING_ARROW_LEN: int = 300    # length of the facing indicator arrow (world units)
+CMD_FACING_ARROW_HEAD: int = 120   # width of the arrowhead base (world units)
+
+# ── Level-6 unit accent constants ────────────────────────────────
+WAGON_HATCH_SPACING: int = 200     # spacing between horizontal hatch lines (world units)
+WAGON_HATCH_WIDTH: int = 30        # width of hatch lines
+ART_CANNON_BARREL_LEN: int = 500   # barrel length (world units), half of CMD_SIZE
+# Layout-view cannon proportions at BASE_SIZE=200: barrel=15x60, wheels=10x25, connectors=5x16
+# Total aspect: 45 wide x 60 tall (3:4)
+ART_CANNON_TOTAL_W: int = 375      # total cannon width derived from barrel length (500 * 45/60)
+ART_CANNON_TOTAL_H: int = 500      # total cannon height = barrel length
+
 
 def get_border_color(is_selected: bool, is_hovered: bool, is_highlighted: bool) -> QColor:
     """Return the border color based on selection/hover/highlight state."""

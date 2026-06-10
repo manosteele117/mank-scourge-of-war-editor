@@ -37,6 +37,14 @@ class FormationArchetype:
         self.columns = int(self.definition[3])
         self.row_dist = self.definition[4].strip()
         self.col_dist = self.definition[5].strip()
+
+        # Pre-compute spacing constants from the raw strings.
+        # These never change after parsing, so compute once here
+        # instead of re-parsing on every get_positions() call.
+        self.base_row_distance = float(self.row_dist.rstrip('+'))
+        self.base_column_distance = float(self.col_dist.rstrip('+'))
+        self.row_distance_depends_on_size = self.row_dist.rstrip(',').endswith('+')
+        self.column_distance_depends_on_size = self.col_dist.rstrip(',').endswith('+')
         self.sub_form = self.definition[6].strip()
         self.keep_form = self.definition[7].strip()
         self.can_wheel = self.definition[8].strip()
@@ -192,12 +200,11 @@ class ActualFormation:
         # Compute subunit dimensions for every slot
         self._compute_subunit_dimensions(sorted_sequence_numbers)
 
-        # Parse formation-level spacing parameters
-        base_row_distance = float(str(self.archetype.row_dist).rstrip('+'))
-        base_column_distance = float(str(self.archetype.col_dist).rstrip('+'))
-        # The '+' suffix means spacing should expand based on unit size
-        row_distance_depends_on_size = self.archetype.row_dist.rstrip(',').endswith('+')
-        column_distance_depends_on_size = self.archetype.col_dist.rstrip(',').endswith('+')
+        # Use pre-computed spacing constants from the archetype
+        base_row_distance = self.archetype.base_row_distance
+        base_column_distance = self.archetype.base_column_distance
+        row_distance_depends_on_size = self.archetype.row_distance_depends_on_size
+        column_distance_depends_on_size = self.archetype.column_distance_depends_on_size
 
         # Build lookup tables from the layout and full_strength_layout
         column_max_length, column_row_depth = self._compute_column_metrics(sorted_sequence_numbers, rebased_layout)

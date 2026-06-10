@@ -84,15 +84,6 @@ class OOBDetailsWidget(QWidget):
         layout.addWidget(self.details_table)
         self.setLayout(layout)
 
-        self._warning_label = QLabel()
-        self._warning_label.setWordWrap(True)
-        self._warning_label.setMaximumWidth(350)
-        self._warning_label.setStyleSheet(
-            "background: #2a2a2a; color: #c0a040; font-size: 10px;"
-            "padding: 4px 8px; border: 1px solid #555; border-radius: 3px;"
-        )
-        self._warning_label.hide()
-
     def _get_combo_options(self, column: str, row_dict: dict) -> list[str]:
         if column == "Formation":
             return get_formation_options(row_dict)
@@ -108,32 +99,9 @@ class OOBDetailsWidget(QWidget):
         if event.type() == QEvent.Wheel:
             if obj is self.details_table or isinstance(obj, QComboBox):
                 return True
-        if (event.type() == QEvent.FocusIn
-                and obj.property("discouraged")):
-            self._show_warning(obj)
-        elif (event.type() == QEvent.FocusOut
-                and obj.property("discouraged")):
-            self._warning_label.hide()
         return super().eventFilter(obj, event)
 
-    def _show_warning(self, edit: QLineEdit) -> None:
-        top = self.window()
-        if self._warning_label.parent() != top:
-            self._warning_label.setParent(top)
-        pos = edit.mapToGlobal(QPoint(0, 0))
-        parent_pos = top.mapFromGlobal(pos)
-        self._warning_label.setText(
-            "This field is managed by this application, and should not be edited "
-            "by hand, use the cut/paste/drag/insert commands to achieve the same result."
-        )
-        self._warning_label.adjustSize()
-        label_y = parent_pos.y() - self._warning_label.sizeHint().height()
-        self._warning_label.move(parent_pos.x(), label_y)
-        self._warning_label.show()
-        self._warning_label.raise_()
-
     def populate(self, row_index: int) -> None:
-        self._warning_label.hide()
         if self.data.df is None or row_index is None:
             self.clear()
             return
@@ -237,7 +205,6 @@ class OOBDetailsWidget(QWidget):
 
     def clear(self) -> None:
         self.current_row_index = None
-        self._warning_label.hide()
         self._widgets.clear()
         self.details_table.clearContents()
         self.details_table.setRowCount(0)

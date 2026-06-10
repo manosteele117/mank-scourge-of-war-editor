@@ -26,6 +26,12 @@ from gui.oob_objective_item import MapObjectiveItem
 DEBUG_FORMATION_PLOT = True  # Set True to pop a matplotlib plot after each formation change
 
 
+def set_debug_formation_plot(enabled: bool):
+    """Update the module-level DEBUG_FORMATION_PLOT flag."""
+    global DEBUG_FORMATION_PLOT
+    DEBUG_FORMATION_PLOT = enabled
+
+
 class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
     """Custom graphics view for the minimap with placement mode support."""
     def __init__(self, scene, map_widget, parent=None):
@@ -87,7 +93,7 @@ class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
             if self.selection_rect_item is None:
                 self.selection_rect_item = self.scene().addRect(
                     selection_rect,
-                    QPen(QColor(100, 150, 255), 1),
+                    QPen(QColor(100, 150, 255), 0.1),
                     QBrush(QColor(100, 150, 255, 50)),
                 )
             else:
@@ -297,10 +303,12 @@ class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
 class MapUnitItem(QGraphicsItem):
     """
     A worldspace polygon on the minimap, rendered as either a rectangle or
-    a hexagonal command shape.
+    a branch-specific command shape.
 
-    Level 6 units are rendered as rectangles sized to their formation dimensions.
-    Levels 1-5 are rendered as partial or complete hexagons with dot indicators.
+    Level 6 units are rendered as rectangles with type-specific accents
+    (wagons: hatching, cavalry: chevron, artillery: barrel extension).
+    Levels 1-5 are rendered as concentric shapes (hex/diamond/square by branch)
+    with branch-specific inner markers and a facing arrow.
     Supports drag, rotate, selection, and hover highlighting.
     """
 
@@ -312,7 +320,7 @@ class MapUnitItem(QGraphicsItem):
 
     def __init__(self, name: str, unit_row_index: int, side: int, level: int,
                  formation: str, world_x: int, world_y: int, head_count: int = 0,
-                 map_widget=None, parent=None):
+                 class_value: str = "", map_widget=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.unit_row_index = unit_row_index
@@ -322,6 +330,7 @@ class MapUnitItem(QGraphicsItem):
         self.world_x = world_x
         self.world_y = world_y
         self.head_count = head_count
+        self.class_value = class_value
         self.map_widget = map_widget
         self.is_hovered = False
         self.is_highlighted = False
@@ -332,6 +341,17 @@ class MapUnitItem(QGraphicsItem):
         self._command_dots: list = []
         self._scene_dots: list = []
         self._label: str = ""
+
+        # Commander shape data (levels 1-5): concentric paths + branch markers + facing arrow
+        self._cmd_concentric_world_paths: list[QPainterPath] = []
+        self._cmd_markers_world: list[tuple] = []  # (wx, wy, "cross"|"slash"|"dot")
+        self._cmd_facing_world_path: Optional[QPainterPath] = None
+        self._scene_concentric_paths: list[QPainterPath] = []
+        self._scene_markers: list[tuple] = []  # (sx, sy, marker_type)
+        self._scene_facing_path: Optional[QPainterPath] = None
+
+        # Artillery cannon scene rects (5 QRectF: barrel, 2 wheels, 2 connectors)
+        self._scene_cannon_rects: list[QRectF] = []
 
         # Compute rectangle dimensions from formation if available
         self.world_width = self.DEFAULT_RECT_WIDTH
@@ -350,6 +370,15 @@ class MapUnitItem(QGraphicsItem):
         self._rebuild_scene_geometry()
 
     def refresh_dimensions(self, archetype_id: str = None):
+        # Artillery units: fixed cannon dimensions, not formation-based
+        class_upper = self.class_value.upper() if self.class_value else ""
+        if self.level == 6 and "_ART_" in class_upper:
+            from constants import ART_CANNON_TOTAL_W, ART_CANNON_TOTAL_H
+            self.world_width = ART_CANNON_TOTAL_W
+            self.world_height = ART_CANNON_TOTAL_H
+            self.origin_offset_x = ART_CANNON_TOTAL_W / 2
+            self.origin_offset_y = ART_CANNON_TOTAL_H / 2
+            return
         formation_id = archetype_id if archetype_id is not None else self.formation
         if not formation_id or formation_id not in FormationArchetype.formations:
             return
@@ -368,107 +397,120 @@ class MapUnitItem(QGraphicsItem):
             pass
 
     def _build_command_shape(self, level, cx, cy, size):
-        """Return (QPainterPath, list[(wx, wy)]) for a command-level shape.
+        """Build concentric shapes, branch markers, and facing arrow for commanders.
 
-        All shapes use the same radius r = size / 2. Flat-top hexagon for levels
-        with flat top (1, 2, 4); pointy-top for levels with pointy top (3, 5).
-        Shapes are OPEN paths (no fill) with gaps where sides are missing.
+        Shape is determined by branch (from class_value):
+          - Infantry (_INF_): flat-top hexagon
+          - Cavalry (_CAV_): diamond (rotated square)
+          - Artillery (_ART_): square
+
+        Rank is shown by number of concentric outlines (1 for brigade, 5 for side).
+        Inner markers replace dots: cross for inf, slash for cav, dot for art.
+        Facing arrow points in the unit's rotation direction.
         """
         import math
+        from constants import (
+            CMD_CONCENTRIC_GAP, CMD_FACING_ARROW_LEN, CMD_FACING_ARROW_HEAD,
+        )
+
         r = size / 2.0
-        h = r * math.sqrt(3) / 2.0  # height of equilateral triangle side r
 
-        # Flat-top hexagon vertices (y-up coordinate system for math, then flip for Qt)
-        # V0=right, V1=top-right, V2=top-left, V3=left, V4=bottom-left, V5=bottom-right
-        V0_f = (cx + r, cy)
-        V1_f = (cx + r / 2, cy - h)
-        V2_f = (cx - r / 2, cy - h)
-        V3_f = (cx - r, cy)
-        V4_f = (cx - r / 2, cy + h)
-        V5_f = (cx + r / 2, cy + h)
-
-        # Pointy-top hexagon vertices (V0=top, V1=top-right, V2=bottom-right, V3=bottom, V4=bottom-left, V5=top-left)
-        V0_p = (cx, cy - r)
-        V1_p = (cx + h, cy - r / 2)
-        V2_p = (cx + h, cy + r / 2)
-        V3_p = (cx, cy + r)
-        V4_p = (cx - h, cy + r / 2)
-        V5_p = (cx - h, cy - r / 2)
-
-        # Dot distance from center (fraction of radius)
-        d = r * 0.35
-
-        path = QPainterPath()
-        dots = []
-
-        if level == 5:
-            # ^ shape: pointy-top, top two edges meeting at top vertex
-            path.moveTo(V5_p[0], V5_p[1])
-            path.lineTo(V0_p[0], V0_p[1])
-            path.lineTo(V1_p[0], V1_p[1])
-            dots = [(cx, cy)]
-
-        elif level == 4:
-            # Flat top + two angled upper edges (top half of flat-top hex)
-            path.moveTo(V3_f[0], V3_f[1])  # left vert
-            path.lineTo(V2_f[0], V2_f[1])  # upper left line
-            path.lineTo(V1_f[0], V1_f[1])  # top flat (left to right)
-            path.lineTo(V0_f[0], V0_f[1])  # upper right line
-            dots = [(cx - d, cy), (cx + d, cy)]
-
-        elif level == 3:
-            # Pointed-top, 4 edges: Symmetric shape with a vertex (point) above the origin
-            path.moveTo(V4_p[0], V4_p[1])
-            path.lineTo(V5_p[0], V5_p[1])  # left edge
-            path.lineTo(V0_p[0], V0_p[1])  # top-left edge
-            path.lineTo(V1_p[0], V1_p[1])  # top-right edge
-            path.lineTo(V2_p[0], V2_p[1])  # right edge
-            dots = [
-                (cx, cy - d),
-                (cx - d * math.cos(math.radians(30)), cy + d * math.sin(math.radians(30))),
-                (cx + d * math.cos(math.radians(30)), cy + d * math.sin(math.radians(30))),
-            ]
-
-        elif level == 2:
-            # Flat-top, all edges except bottom flat (5 edges)
-            path.moveTo(V4_f[0], V4_f[1])  # bottom left vert
-            path.lineTo(V3_f[0], V3_f[1])  # lower left line
-            path.lineTo(V2_f[0], V2_f[1])  # upper left line
-            path.lineTo(V1_f[0], V1_f[1])  # top line
-            path.lineTo(V0_f[0], V0_f[1])  # upper right line
-            path.lineTo(V5_f[0], V5_f[1])  # bottom right line
-            bx = d * 0.75
-            by = d * 0.6
-            dots = [
-                (cx - bx, cy - by),
-                (cx + bx, cy - by),
-                (cx - bx, cy + by),
-                (cx + bx, cy + by),
-            ]
-
-        elif level == 1:
-            # Complete flat-top hexagon (6 edges)
-            path.moveTo(V1_f[0], V1_f[1])
-            path.lineTo(V2_f[0], V2_f[1])  # top flat
-            path.lineTo(V3_f[0], V3_f[1])  # upper left
-            path.lineTo(V4_f[0], V4_f[1])  # lower left
-            path.lineTo(V5_f[0], V5_f[1])  # bottom flat
-            path.lineTo(V0_f[0], V0_f[1])  # lower right
-            path.lineTo(V1_f[0], V1_f[1])  # upper right (closes)
-            dots = [
-                (cx, cy - d),
-                (cx - d * math.sin(math.radians(72)), cy - d * math.cos(math.radians(72))),
-                (cx + d * math.sin(math.radians(72)), cy - d * math.cos(math.radians(72))),
-                (cx - d * math.sin(math.radians(36)), cy + d * math.cos(math.radians(36))),
-                (cx + d * math.sin(math.radians(36)), cy + d * math.cos(math.radians(36))),
-            ]
-
+        # Determine branch from class_value
+        class_upper = self.class_value.upper() if self.class_value else ""
+        if "_CAV_" in class_upper:
+            branch = "cavalry"
+        elif "_ART_" in class_upper:
+            branch = "artillery"
         else:
-            path.moveTo(V5_p[0], V5_p[1])
-            path.lineTo(V0_p[0], V0_p[1])
-            path.lineTo(V1_p[0], V1_p[1])
+            branch = "infantry"
 
-        return path, dots
+        # Number of concentric layers = rank (1=brigade..5=side)
+        num_layers = max(1, 6 - level) if level <= 5 else 1
+
+        # Marker type and count
+        if branch == "infantry":
+            marker_type = "x"
+        elif branch == "cavalry":
+            marker_type = "diamond"
+        else:
+            marker_type = "dot"
+        marker_count = num_layers  # same as concentric layer count
+
+        # Build concentric paths (innermost first, each larger by CMD_CONCENTRIC_GAP)
+        concentric_paths = []
+        for i in range(num_layers):
+            layer_r = r + i * CMD_CONCENTRIC_GAP
+            path = self._make_branch_shape(branch, cx, cy, layer_r)
+            concentric_paths.append(path)
+
+        # Build marker positions (distributed inside innermost shape)
+        markers = self._distribute_markers(branch, marker_type, marker_count, cx, cy, r * 0.35)
+
+        # Build facing arrow (white, pointing in unit's rotation direction)
+        facing_path = QPainterPath()
+        arrow_len = CMD_FACING_ARROW_LEN
+        arrow_head = CMD_FACING_ARROW_HEAD
+        # Arrow points "up" (north) in local coords; rotation is applied by Qt
+        base_y = cy - r          # open face starts at the innermost shape edge
+        tip_y = cy - r - arrow_len  # tip extends outward from the shape
+        facing_path.moveTo(cx, tip_y)
+        facing_path.lineTo(cx - arrow_head / 2, base_y)
+        facing_path.moveTo(cx, tip_y)
+        facing_path.lineTo(cx + arrow_head / 2, base_y)
+
+        return concentric_paths, markers, facing_path
+
+    def _make_branch_shape(self, branch, cx, cy, r):
+        """Create a closed QPainterPath for the given branch shape at radius r."""
+        path = QPainterPath()
+        if branch == "infantry":
+            # Flat-top hexagon
+            import math
+            h = r * math.sqrt(3) / 2.0
+            verts = [
+                (cx + r, cy),           # right
+                (cx + r / 2, cy - h),   # top-right
+                (cx - r / 2, cy - h),   # top-left
+                (cx - r, cy),           # left
+                (cx - r / 2, cy + h),   # bottom-left
+                (cx + r / 2, cy + h),   # bottom-right
+            ]
+            path.moveTo(verts[0][0], verts[0][1])
+            for v in verts[1:]:
+                path.lineTo(v[0], v[1])
+            path.closeSubpath()
+        elif branch == "cavalry":
+            # Diamond (rotated square) — narrow width, full height
+            verts = [
+                (cx, cy - r),       # top
+                (cx + r / 2, cy),   # right (half width)
+                (cx, cy + r),       # bottom
+                (cx - r / 2, cy),   # left (half width)
+            ]
+            path.moveTo(verts[0][0], verts[0][1])
+            for v in verts[1:]:
+                path.lineTo(v[0], v[1])
+            path.closeSubpath()
+        else:
+            # Artillery: square
+            path.addRect(cx - r, cy - r, r * 2, r * 2)
+        return path
+
+    def _distribute_markers(self, branch, marker_type, count, cx, cy, radius):
+        """Return list of (wx, wy, marker_type) distributed in a circle."""
+        import math
+        markers = []
+        if count <= 0:
+            return markers
+        if count == 1:
+            markers.append((cx, cy, marker_type))
+            return markers
+        for i in range(count):
+            angle = -math.pi / 2 + i * 2 * math.pi / count  # start from top
+            mx = cx + radius * math.cos(angle)
+            my = cy + radius * math.sin(angle)
+            markers.append((mx, my, marker_type))
+        return markers
 
     def _rebuild_scene_geometry(self):
         if self.map_widget is None:
@@ -484,16 +526,22 @@ class MapUnitItem(QGraphicsItem):
                 (self.world_x - ox, self.world_y - oy + self.world_height),
             ]
             self._cmd_world_path = None
+            self._cmd_concentric_world_paths = []
+            self._cmd_markers_world = []
+            self._cmd_facing_world_path = None
         else:
-            path, dots_world = self._build_command_shape(
+            concentric, markers, facing = self._build_command_shape(
                 self.level, self.world_x, self.world_y, self.CMD_SIZE)
-            self._cmd_world_path = path
+            self._cmd_concentric_world_paths = concentric
+            self._cmd_markers_world = markers
+            self._cmd_facing_world_path = facing
+            self._cmd_world_path = concentric[0] if concentric else None
             self._cmd_world_verts = None
-            self._command_dots = list(dots_world)
+            self._command_dots = [(mx, my) for mx, my, _ in markers]
         self._refresh_scene_coords()
 
     def _refresh_scene_coords(self):
-        """Rebuild _scene_polygon, _scene_path, and _scene_dots from stored world coords."""
+        """Rebuild scene-space geometry from stored world coords."""
         if self.map_widget is None:
             return
         item_pos = self.pos()
@@ -507,20 +555,19 @@ class MapUnitItem(QGraphicsItem):
                     sp = self.map_widget.world_to_scene(wx, wy)
                     p = sp - item_pos
                     poly.append(p)
-                # Build closed path for hit testing
                 if poly.size() >= 2:
                     path.moveTo(poly[0])
                     for i in range(1, poly.size()):
                         path.lineTo(poly[i])
                     path.closeSubpath()
         else:
-            # Levels 1-5: path from world path
-            if hasattr(self, '_cmd_world_path') and self._cmd_world_path is not None:
-                path_world = self._cmd_world_path
+            # Levels 1-5: convert concentric world paths to scene paths
+            self._scene_concentric_paths = []
+            for world_path in self._cmd_concentric_world_paths:
                 scene_path = QPainterPath()
                 first = True
-                for i in range(path_world.elementCount()):
-                    elem = path_world.elementAt(i)
+                for i in range(world_path.elementCount()):
+                    elem = world_path.elementAt(i)
                     sp = self.map_widget.world_to_scene(elem.x, elem.y)
                     p = sp - item_pos
                     if first:
@@ -528,12 +575,40 @@ class MapUnitItem(QGraphicsItem):
                         first = False
                     else:
                         scene_path.lineTo(p.x(), p.y())
-                path = scene_path
+                self._scene_concentric_paths.append(scene_path)
+
+            # Use innermost path for hit testing
+            if self._scene_concentric_paths:
+                path = self._scene_concentric_paths[0]
+
+            # Convert markers to scene coords
+            self._scene_markers = []
+            for wx, wy, mtype in self._cmd_markers_world:
+                sp = self.map_widget.world_to_scene(wx, wy)
+                p = sp - item_pos
+                self._scene_markers.append((p.x(), p.y(), mtype))
+
+            # Convert facing arrow to scene coords
+            if self._cmd_facing_world_path is not None:
+                facing_scene = QPainterPath()
+                first = True
+                for i in range(self._cmd_facing_world_path.elementCount()):
+                    elem = self._cmd_facing_world_path.elementAt(i)
+                    sp = self.map_widget.world_to_scene(elem.x, elem.y)
+                    p = sp - item_pos
+                    if first:
+                        facing_scene.moveTo(p.x(), p.y())
+                        first = False
+                    else:
+                        facing_scene.lineTo(p.x(), p.y())
+                self._scene_facing_path = facing_scene
+            else:
+                self._scene_facing_path = None
 
         self._scene_polygon = poly
         self._scene_path = path if not path.isEmpty() else None
 
-        # Scene-space stroke width for hex lines (levels 1-5).
+        # Scene-space stroke width
         if self.level < 6:
             if self.map_widget:
                 stroke_world = self.CMD_SIZE * 0.06
@@ -545,24 +620,28 @@ class MapUnitItem(QGraphicsItem):
         else:
             self._scene_stroke_width = 0
 
-        # Convert dot world coords to scene coords
-        self._scene_dots = []
-        for wx, wy in self._command_dots:
-            sp = self.map_widget.world_to_scene(wx, wy)
-            p = sp - item_pos
-            self._scene_dots.append((p.x(), p.y()))
+        # Legacy dots for boundingRect compatibility
+        self._scene_dots = [(mx, my) for mx, my, _ in self._scene_markers] if hasattr(self, '_scene_markers') else []
 
     def boundingRect(self):
         if self.level < 6:
-            if self.map_widget:
-                center = self.map_widget.world_to_scene(self.world_x, self.world_y)
-                corner = self.map_widget.world_to_scene(
-                    self.world_x + self.CMD_SIZE / 2, self.world_y + self.CMD_SIZE / 2)
-                half = max(abs(corner.x() - center.x()),
-                           abs(corner.y() - center.y()))
-            else:
-                half = self.CMD_SIZE / 2
+            # Compute from the actual outermost scene path
+            if self._scene_concentric_paths:
+                outermost = self._scene_concentric_paths[-1]
+                rect = outermost.boundingRect()
+                # Include facing arrow in the bounding rect
+                if self._scene_facing_path is not None:
+                    rect = rect.united(self._scene_facing_path.boundingRect())
+                return rect.adjusted(-2, -2, 2, 2)
+            # Fallback before geometry is built
+            half = self.CMD_SIZE / 2
             return QRectF(-half, -half, half * 2, half * 2)
+        # Level 6: artillery uses cannon rects, others use polygon
+        if self._scene_cannon_rects:
+            rect = QRectF()
+            for r in self._scene_cannon_rects:
+                rect = rect.united(r) if not rect.isNull() else QRectF(r)
+            return rect.adjusted(-5, -5, 5, 5)
         if self._scene_polygon is not None and not self._scene_polygon.isEmpty():
             rect = self._scene_polygon.boundingRect()
             for dx, dy in self._scene_dots:
@@ -574,7 +653,16 @@ class MapUnitItem(QGraphicsItem):
     def shape(self) -> QPainterPath:
         path = QPainterPath()
         if self.level < 6:
-            path.addRect(self.boundingRect())
+            if self._scene_concentric_paths:
+                # Use the actual outermost path for precise hit testing
+                path.addPath(self._scene_concentric_paths[-1])
+                if self._scene_facing_path is not None:
+                    path.addPath(self._scene_facing_path)
+            return path
+        # Level 6: artillery uses cannon rects, others use polygon
+        if self._scene_cannon_rects:
+            for r in self._scene_cannon_rects:
+                path.addRect(r)
             return path
         if self._scene_polygon is not None and not self._scene_polygon.isEmpty():
             path.addPolygon(self._scene_polygon)
@@ -582,8 +670,14 @@ class MapUnitItem(QGraphicsItem):
         return path
 
     def paint(self, painter: QPainter, option, widget=None):
-        if (self._scene_polygon is None or self._scene_polygon.isEmpty()) and \
-           (self._scene_path is None or self._scene_path.isEmpty()):
+        if self.level < 6:
+            self._paint_commander(painter)
+        else:
+            self._paint_level6(painter)
+
+    def _paint_level6(self, painter: QPainter):
+        """Paint level-6 units: rectangle base with type-specific accents."""
+        if (self._scene_polygon is None or self._scene_polygon.isEmpty()):
             return
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -602,36 +696,185 @@ class MapUnitItem(QGraphicsItem):
             border_color = QColor("#ffffff")
             border_width = 0.02
 
-        path = self._scene_path
-        
-        if self.level !=6:  # use path around the stroked (enthickened) path
-            stroker = QPainterPathStroker()
-            stroker.setWidth(self._scene_stroke_width)
-            path = stroker.createStroke(self._scene_path)
+        # Type-specific accents
+        class_upper = self.class_value.upper() if self.class_value else ""
+        formation_upper = self.formation.upper() if self.formation else ""
 
-        # two-pass rendering.
-        # Pass 1: thin border along the open path (no brush).
+        if "_ART_" in class_upper:
+            # Artillery: no background rectangle, cannon shapes define the unit
+            self._scene_cannon_rects = []
+            self._paint_artillery_cannon(painter, side_color, border_color, border_width)
+        else:
+            self._scene_cannon_rects = []
+            # Draw filled rectangle for non-artillery
+            painter.setPen(QPen(border_color, border_width))
+            painter.setBrush(QBrush(side_color))
+            painter.drawPolygon(self._scene_polygon)
+
+            if "SUPPLYWAGON" in formation_upper:
+                self._paint_wagon_hatching(painter, side_color)
+            elif "_CAV_" in class_upper:
+                self._paint_cavalry_slash(painter, side_color)
+
+    def _paint_wagon_hatching(self, painter, base_color):
+        """Draw horizontal hatching inside the wagon rectangle."""
+        from constants import WAGON_HATCH_SPACING, WAGON_HATCH_WIDTH
+        if self._scene_polygon is None or self._scene_polygon.isEmpty():
+            return
+        rect = self._scene_polygon.boundingRect()
+        hatch_color = base_color.darker(130)
+        painter.setPen(QPen(hatch_color, WAGON_HATCH_WIDTH * 0.02))
+        y = rect.top() + WAGON_HATCH_SPACING * 0.02
+        while y < rect.bottom():
+            painter.drawLine(QPointF(rect.left() + 2, y), QPointF(rect.right() - 2, y))
+            y += WAGON_HATCH_SPACING * 0.02
+
+    def _paint_cavalry_slash(self, painter, base_color):
+        """Draw a thick diagonal slash from top-left to bottom-right of the bounding box."""
+        if self._scene_polygon is None or self._scene_polygon.isEmpty():
+            return
+        rect = self._scene_polygon.boundingRect()
+        thickness = min(rect.width(), rect.height()) * 0.10
+        inset = thickness / 2
+        painter.setPen(QPen(QColor("#ffffff"), thickness))
+        painter.drawLine(
+            QPointF(rect.left() + inset, rect.top() + inset),
+            QPointF(rect.right() - inset, rect.bottom() - inset))
+
+    def _paint_artillery_cannon(self, painter, base_color, border_color, border_width):
+        """Draw a 5-rectangle cannon (barrel, 2 wheels, 2 connectors) inside the bounding box."""
+        if self._scene_polygon is None or self._scene_polygon.isEmpty():
+            return
+        rect = self._scene_polygon.boundingRect()
+        cx = rect.center().x()
+        cy = rect.center().y()
+
+        # Layout view proportions at BASE_SIZE=200: barrel=15x60, wheels=10x25, connectors=5x16
+        # Total: 45 wide x 60 tall. Scale to fit within the scene-space rectangle.
+        s = min(rect.width() / 45, rect.height() / 60)
+
+        cannon_color = base_color.lighter(140)
+
+        # Barrel (center vertical rectangle)
+        bw = 15 * s
+        bh = 60 * s
+        barrel = QRectF(cx - bw / 2, cy - bh / 2, bw, bh)
+        painter.fillRect(barrel, QBrush(cannon_color))
         painter.setPen(QPen(border_color, border_width))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawPath(path)
-        # Pass 2: fill the stroked body (no pen — hides vertex artifacts).
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(side_color))
-        painter.drawPath(path)
+        painter.drawRect(barrel)
 
+        # Wheels (left and right of barrel) — positioned 1/3 from bottom
+        ww = 10 * s
+        wh = 25 * s
+        gap = 5 * s
+        accessory_cy = cy + bh / 6  # 1/3 from bottom of barrel
+        left_wheel = QRectF(cx - bw / 2 - gap - ww, accessory_cy - wh / 2, ww, wh)
+        right_wheel = QRectF(cx + bw / 2 + gap, accessory_cy - wh / 2, ww, wh)
+        painter.fillRect(left_wheel, QBrush(cannon_color))
+        painter.drawRect(left_wheel)
+        painter.fillRect(right_wheel, QBrush(cannon_color))
+        painter.drawRect(right_wheel)
 
-        # Draw command dots (levels 1-5).
-        if self._scene_dots:
-            painter.setPen(QPen(QColor("#ffffff"), 0.02))
-            painter.setBrush(QBrush(QColor("#ffffff")))
-            for dx, dy in self._scene_dots:
-                painter.drawEllipse(QPointF(dx, dy), self.DOT_RADIUS, self.DOT_RADIUS)
+        # Connectors (between wheels and barrel)
+        cw = 5 * s
+        ch = 16 * s
+        left_conn = QRectF(cx - bw / 2 - cw, accessory_cy - ch / 2, cw, ch)
+        right_conn = QRectF(cx + bw / 2, accessory_cy - ch / 2, cw, ch)
+        painter.fillRect(left_conn, QBrush(cannon_color))
+        painter.drawRect(left_conn)
+        painter.fillRect(right_conn, QBrush(cannon_color))
+        painter.drawRect(right_conn)
 
-        if self._label and self._scene_polygon is not None and self._scene_polygon.size() > 0:
-            center = self._scene_polygon.boundingRect().center()
-            painter.setPen(QPen(QColor(255, 255, 255)))
-            painter.setFont(QFont("Arial", 8))
-            painter.drawText(center, self._label)
+        # Store rects for bounding/hit area
+        self._scene_cannon_rects = [barrel, left_wheel, right_wheel, left_conn, right_conn]
+
+    def _paint_commander(self, painter: QPainter):
+        """Paint commander units: concentric shapes, branch markers, facing arrow."""
+        if not self._scene_concentric_paths:
+            return
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        side_color = get_side_color(
+            self.side,
+            is_selected=self.isSelected(),
+            is_hovered=self.is_hovered,
+            is_highlighted=self.is_highlighted,
+        )
+
+        if self.isSelected():
+            border_color = QColor("#ffff00")
+            border_width = 0.25
+        else:
+            border_color = QColor("#ffffff")
+            border_width = 0.02
+
+        stroke_width = self._scene_stroke_width
+
+        # Draw concentric shapes: outermost first (filled outline), innermost last (filled solid)
+        num_paths = len(self._scene_concentric_paths)
+        for i, scene_path in enumerate(self._scene_concentric_paths):
+            is_innermost = (i == 0)
+            if is_innermost:
+                # Innermost: fill interior, then two-pass stroked border
+                stroker = QPainterPathStroker()
+                stroker.setWidth(stroke_width)
+                stroked = stroker.createStroke(scene_path)
+                # Fill the interior of the shape
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(side_color))
+                painter.drawPath(scene_path)
+                # Pass 1: thin border along the stroked path (no fill)
+                painter.setPen(QPen(border_color, border_width))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(stroked)
+                # Pass 2: fill the stroked body (no pen — covers vertex artifacts)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(side_color))
+                painter.drawPath(stroked)
+            else:
+                # Outer rings: stroke only (no fill), thinner
+                outer_ratio = 1.0 - (i / max(num_paths, 1)) * 0.4
+                ring_width = stroke_width * 0.6 * outer_ratio
+                painter.setPen(QPen(side_color, ring_width))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(scene_path)
+
+        # Draw branch markers — size = 10% of innermost shape radius
+        if self._scene_markers and self._scene_concentric_paths:
+            inner_rect = self._scene_concentric_paths[0].boundingRect()
+            marker_r = min(inner_rect.width(), inner_rect.height()) / 2 * 0.10
+            for mx, my, mtype in self._scene_markers:
+                if mtype == "x":
+                    painter.setPen(QPen(QColor("#ffffff"), marker_r * 0.9))
+                    painter.setBrush(Qt.NoBrush)
+                    self._draw_x(painter, mx, my, marker_r)
+                elif mtype == "diamond":
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(QColor("#ffffff")))
+                    diamond = QPainterPath()
+                    diamond.moveTo(mx, my - marker_r)
+                    diamond.lineTo(mx + marker_r / 2, my)
+                    diamond.lineTo(mx, my + marker_r)
+                    diamond.lineTo(mx - marker_r / 2, my)
+                    diamond.closeSubpath()
+                    painter.drawPath(diamond)
+                elif mtype == "dot":
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(QColor("#ffffff")))
+                    painter.drawEllipse(QPointF(mx, my), marker_r, marker_r)
+
+        # Draw facing arrow (white)
+        if self._scene_facing_path is not None:
+            arrow_pen = QPen(QColor("#ffffff"), 0.04)
+            painter.setPen(arrow_pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(self._scene_facing_path)
+
+    def _draw_x(self, painter, cx, cy, size):
+        """Draw an X marker."""
+        painter.drawLine(QPointF(cx - size, cy - size), QPointF(cx + size, cy + size))
+        painter.drawLine(QPointF(cx - size, cy + size), QPointF(cx + size, cy - size))
 
     def hoverEnterEvent(self, event):
         self.is_hovered = True
@@ -1056,7 +1299,8 @@ class OOBMapWidget(QWidget):
         unit_item = MapUnitItem(
             name=unit_info.name, unit_row_index=row_index, side=unit_info.side,
             level=level, formation=unit_info.formation, world_x=world_x,
-            world_y=world_y, head_count=unit_info.head_count, map_widget=self)
+            world_y=world_y, head_count=unit_info.head_count,
+            class_value=unit_info.class_value, map_widget=self)
 
         scene_pos = self.world_to_scene(world_x, world_y)
         unit_item.setPos(scene_pos)
@@ -1275,6 +1519,7 @@ class OOBMapWidget(QWidget):
                 "world_y": u.world_y,
                 "rotation": u.rotation(),
                 "formation": u.formation,
+                "class_value": u.class_value,
             }
             for u in self.placed_units
         ]

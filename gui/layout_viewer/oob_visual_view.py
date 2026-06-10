@@ -2,8 +2,8 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QGraphicsView, QGraphicsScen
 from PySide6.QtCore import Qt, Signal, QRectF, QLineF
 from PySide6.QtGui import QPainter, QPen, QColor
 from core.oob_model import OOBData
-from gui.oob_visual_shapes import get_shape_class_for_level, UnitGraphicsItem
-from gui.oob_visual_layout import HierarchicalLayout
+from gui.layout_viewer.oob_visual_shapes import get_shape_class_for_level, UnitGraphicsItem
+from gui.layout_viewer.oob_visual_layout import HierarchicalLayout
 from gui.zoomable_view import ZoomableGraphicsView
 
 

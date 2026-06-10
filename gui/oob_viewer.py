@@ -15,11 +15,13 @@ from core.oob_model import OOBData
 from core.oob_validation import OOBValidator
 from gui.oob_tree_view import OOBTreeWidget
 from gui.oob_details_view import OOBDetailsWidget
-from gui.oob_visual_view import OOBVisualWidget
+from gui.layout_viewer.oob_visual_view import OOBVisualWidget
 from gui.oob_shared_toolbar import OOBSharedToolbar
 from gui.oob_map_view import OOBMapWidget
 from gui.oob_scenario_tab import ScenarioTab
 from gui.oob_files_tab import FilesTab
+from gui.oob_settings_tab import SettingsTab
+from gui.oob_map_view import set_debug_formation_plot
 from gui.oob_dropdowns import (
     load_rifles, load_artillery, load_gfx, load_unitglobal, load_gfxpack,
 )
@@ -230,16 +232,24 @@ class OOBViewer(QMainWindow):
         self.scenario = ScenarioTab(self.map_viewer)
 
         self.right_tab_widget = QTabWidget()
-        self.right_tab_widget.addTab(self.details, "Details")
-        self.right_tab_widget.addTab(self.map_viewer, "Map")
-        self.right_tab_widget.addTab(self.scenario, "Scenario")
 
         self.files_tab = FilesTab()
         self.files_tab.file_changed.connect(self._on_file_changed)
         self.files_tab.template_toggled.connect(self._on_template_toggled)
         self.files_tab.reload_templates.connect(self._on_load_templates)
         self.files_tab.load_defaults_requested.connect(self._on_load_game_defaults)
-        self.right_tab_widget.addTab(self.files_tab, "Files/Settings")
+        self.right_tab_widget.addTab(self.files_tab, "Files")
+
+        self.right_tab_widget.addTab(self.map_viewer, "Map")
+        self.right_tab_widget.addTab(self.scenario, "Scenario")
+        self.right_tab_widget.addTab(self.details, "Details")
+
+        self.battlescript_tab = QWidget()
+        self.right_tab_widget.addTab(self.battlescript_tab, "Battlescript")
+
+        self.settings_tab = SettingsTab()
+        self.settings_tab.setting_changed.connect(self._on_setting_changed)
+        self.right_tab_widget.addTab(self.settings_tab, "Settings")
 
         # Scan template files and load with enabled state
         templates_dir = os.path.join(
@@ -262,6 +272,11 @@ class OOBViewer(QMainWindow):
             load_unitglobal(self.config["unitglobal"])
         if self.config.get("gfxpack"):
             load_gfxpack(self.config["gfxpack"])
+
+        # Apply saved settings
+        debug_plot = self.config.get("debug_formation_plot", "true") == "true"
+        set_debug_formation_plot(debug_plot)
+        self.settings_tab.apply_settings(self.config)
 
         if self.config.get("map-ini"):
             self.right_tab_widget.setCurrentWidget(self.map_viewer)
@@ -311,12 +326,16 @@ class OOBViewer(QMainWindow):
                 parser.write(f)
         parser = configparser.ConfigParser()
         parser.read(config_path)
-        return {
+        result = {
             key: parser.get("paths", key, fallback="")
             for key in ("map-ini", "drills", "oob", "rifles", "artillery",
                         "gfx", "gfxpack", "unitglobal",
                         "template_files_enabled")
         }
+        # Read settings section
+        for key in ("debug_formation_plot",):
+            result[key] = parser.get("settings", key, fallback="true")
+        return result
 
     def _save_config(self, **kwargs):
         config_dir = os.path.join(
@@ -333,6 +352,26 @@ class OOBViewer(QMainWindow):
             parser.set("paths", key, val)
         with open(config_path, "w") as f:
             parser.write(f)
+
+    def _save_setting(self, key: str, value: str):
+        config_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config")
+        config_path = os.path.join(config_dir, "app_config.ini")
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+        parser = configparser.ConfigParser()
+        parser.read(config_path)
+        if "settings" not in parser:
+            parser.add_section("settings")
+        parser.set("settings", key, value)
+        with open(config_path, "w") as f:
+            parser.write(f)
+
+    def _on_setting_changed(self, key: str, value: str):
+        if key == "debug_formation_plot":
+            set_debug_formation_plot(value == "true")
+        self._save_setting(key, value)
 
     def _on_file_changed(self, config_key: str, file_path: str):
         self._save_config(**{config_key: file_path})
@@ -590,7 +629,7 @@ class OOBViewer(QMainWindow):
 
     def _on_detail_edited(self, field_name: str = ""):
         self._set_validation_state("unknown")
-        if field_name in ("Experience", "Head Count"):
+        if field_name in ("NAME1", "Experience", "Head Count"):
             self.tree.populate_with_expansion()
 
     def _on_load_templates(self):

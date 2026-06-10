@@ -23,6 +23,7 @@ class UnitInfo(NamedTuple):
     level: Optional[int]
     formation: str
     head_count: int
+    class_value: str = ""
 
     def to_drag_payload(self) -> dict:
         """Compact dict suitable for JSON-serialized drag/drop payloads."""
@@ -33,6 +34,7 @@ class UnitInfo(NamedTuple):
             "level": self.level if self.level is not None else 1,
             "formation": self.formation,
             "head_count": self.head_count,
+            "class_value": self.class_value,
         }
 
     @classmethod
@@ -45,6 +47,7 @@ class UnitInfo(NamedTuple):
             level=payload.get("level"),
             formation=str(payload.get("formation", "")),
             head_count=int(payload.get("head_count", 0)),
+            class_value=str(payload.get("class_value", "")),
         )
 
 
@@ -400,10 +403,18 @@ class OOBData:
             return True
         return self.get_row_index_by_key(parent_key) is None
 
-    def get_hierarchy_level_name_and_index(self, hierarchy_key: Tuple[int, ...]) -> str:
+    def get_hierarchy_level_name_and_index(self, hierarchy_key: Tuple[int, ...],
+                                             class_value: str = "") -> str:
         for i in range(len(hierarchy_key) - 1, -1, -1):
             if hierarchy_key[i] != 0:
-                return f"{LEVEL_NAMES[i]} ({hierarchy_key[i]})"
+                name = LEVEL_NAMES[i]
+                if i == 5:  # Level 6: override based on unit class
+                    cv = class_value.upper()
+                    if "_CAV_" in cv:
+                        name = "Squadron"
+                    elif "_ART_" in cv:
+                        name = "Gun"
+                return f"{name} ({hierarchy_key[i]})"
         return "Unknown"
 
     # ── Adjacency index (O(1) per-row lookups, O(subtree) subordinates) ──
@@ -462,6 +473,8 @@ class OOBData:
         row = self.get_row(row_index)
         csv_formation = str(row.get("Formation") if pd.notna(row.get("Formation")) else "")
         resolved_formation = self._resolve_formation(row_index, csv_formation)
+        class_raw = row.get("CLASS")
+        class_value = str(class_raw) if pd.notna(class_raw) else ""
         return UnitInfo(
             row_index=row_index,
             name=str(row.get("NAME1", f"Unit {row_index}")),
@@ -469,6 +482,7 @@ class OOBData:
             level=self.get_level(row_index),
             formation=resolved_formation,
             head_count=int(row.get("Head Count") if pd.notna(row.get("Head Count")) else 0),
+            class_value=class_value,
         )
 
     def _resolve_formation(self, row_index: int, csv_formation: str) -> str:
