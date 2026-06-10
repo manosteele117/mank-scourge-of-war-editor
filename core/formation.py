@@ -198,13 +198,15 @@ class ActualFormation:
             for gx in [g for g in all_grid_x if g > 0]:
                 prev_gx = max((g for g in all_grid_x if g < gx), default=0)
                 gap = propagated.get((gx, gy), base_row_dist)
+                if row_dist_plus and (gx, gy) not in per_cell_dist:
+                    prev_depth = col_row_depth.get(gy, {}).get(prev_gx, 0)
+                    curr_depth = col_row_depth.get(gy, {}).get(gx, 0)
+                    gap += (prev_depth + curr_depth) / 2
                 col_row_offsets[gy][gx] = col_row_offsets[gy][prev_gx] + gap
             for gx in reversed([g for g in all_grid_x if g < 0]):
-                next_gx = min((g for g in all_grid_x if g > gx), default=0)
-                next_ov = per_cell_dist.get((next_gx, gy), 0)
                 curr_ov = per_cell_dist.get((gx, gy), 0)
-                gap = (next_ov if next_ov != 0 else base_row_dist) - curr_ov
-                col_row_offsets[gy][gx] = col_row_offsets[gy][next_gx] - gap
+                gap = base_row_dist - curr_ov
+                col_row_offsets[gy][gx] = -gap * abs(gx)
 
         col_offsets = {0: 0}
         for gy in [g for g in all_grid_y if g > 0]:

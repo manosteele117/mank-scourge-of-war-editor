@@ -558,9 +558,16 @@ class OOBData:
         used_children: Set[int] = set()
         used_slot_seqs: Set[str] = set()
 
-        # First pass: subtype matching
+        # First pass: fill slots in order (None = wildcard, typed = subtype match)
         for seq_str, subtype, per_cell_form in all_slots:
             if subtype is None:
+                for child_idx, child_row_idx in enumerate(direct_children):
+                    if child_idx in used_children:
+                        continue
+                    slot_to_child[seq_str] = child_idx
+                    used_children.add(child_idx)
+                    used_slot_seqs.add(seq_str)
+                    break
                 continue
             for child_idx, child_row_idx in enumerate(direct_children):
                 if child_idx in used_children:
@@ -573,18 +580,17 @@ class OOBData:
                     used_slot_seqs.add(seq_str)
                     break
 
-        # Second pass: fill remaining slots with unassigned children in order
-        next_child = 0
+        # Second pass: fill remaining unmatched slots in order
         for seq_str, subtype, per_cell_form in all_slots:
             if seq_str in used_slot_seqs:
                 continue
-            while next_child < len(direct_children) and next_child in used_children:
-                next_child += 1
-            if next_child < len(direct_children):
-                slot_to_child[seq_str] = next_child
-                used_children.add(next_child)
+            for child_idx, child_row_idx in enumerate(direct_children):
+                if child_idx in used_children:
+                    continue
+                slot_to_child[seq_str] = child_idx
+                used_children.add(child_idx)
                 used_slot_seqs.add(seq_str)
-                next_child += 1
+                break
 
         # Build sub_formations list and child_row_indices
         max_seq = max((int(s) for s in used_slot_seqs), default=0)

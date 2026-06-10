@@ -17,8 +17,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--plot', action='store_true', help='Plot formation layout')
 args = parser.parse_args()
 
-ROW_INDEX = 59
-FORMATION = 'DRIL_Lvl4_Inf_Column'
+ROW_INDEX = 70
+FORMATION = 'DRIL_Lvl5_Art_Line'
 
 fmt = oob.build_strength(ROW_INDEX, archetype_id=FORMATION)
 pos = fmt.get_positions()
@@ -26,8 +26,6 @@ name = str(oob.df.iloc[ROW_INDEX].get('Name', ''))
 
 print(f'Unit: {name} (row {ROW_INDEX})')
 print(f'Formation: {FORMATION}')
-print(f'Row dist: {fmt.archetype.row_dist}')
-print(f'Col dist: {fmt.archetype.col_dist}')
 print(f'Children: {len([v for v in fmt.strength if v is not None])}')
 print()
 
@@ -52,6 +50,20 @@ for seq_str in sorted(pos.keys(), key=lambda s: int(s) if s.isdigit() else 0):
     else:
         label = '(empty slot)'
     print(f'  seq {seq:2d}: x={x:8.1f} y={y:8.1f}  len={l:5.1f} dep={d:5.1f}  {label}')
+
+print()
+print('Y-alignment check (gx=0 row):')
+gx0_ys = []
+for seq_str in sorted(pos.keys(), key=lambda s: int(s) if s.isdigit() else 0):
+    seq = int(seq_str)
+    x, y, l, d = pos[seq_str]
+    if seq > 2:
+        gx0_ys.append((seq, y))
+if gx0_ys:
+    ys = [y for _, y in gx0_ys]
+    print(f'  min y: {min(ys):.1f}, max y: {max(ys):.1f}')
+    for seq, y in gx0_ys:
+        print(f'  seq {seq:2d}: y={y:8.1f}')
 
 print()
 print('Child row indices (seq -> oob_row):')

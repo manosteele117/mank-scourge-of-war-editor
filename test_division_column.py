@@ -26,8 +26,6 @@ name = str(oob.df.iloc[ROW_INDEX].get('Name', ''))
 
 print(f'Unit: {name} (row {ROW_INDEX})')
 print(f'Formation: {FORMATION}')
-print(f'Row dist: {fmt.archetype.row_dist}')
-print(f'Col dist: {fmt.archetype.col_dist}')
 print(f'Children: {len([v for v in fmt.strength if v is not None])}')
 print()
 
