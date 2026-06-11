@@ -126,20 +126,6 @@ class FilesTab(QWidget):
 
     def _create_files_section(self) -> QGroupBox:
         group = QGroupBox("Files")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #444444;
-                border-radius: 4px;
-                margin-top: 12px;
-                padding-top: 16px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
-            }
-        """)
         layout = QVBoxLayout(group)
         layout.setSpacing(8)
 
@@ -168,20 +154,6 @@ class FilesTab(QWidget):
 
     def _create_templates_section(self) -> QGroupBox:
         group = QGroupBox("Template Files")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #444444;
-                border-radius: 4px;
-                margin-top: 12px;
-                padding-top: 16px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
-            }
-        """)
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(4)
 

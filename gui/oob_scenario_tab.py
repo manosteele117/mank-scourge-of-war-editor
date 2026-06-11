@@ -5,11 +5,13 @@ from typing import Optional, Dict, List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox,
-    QAbstractItemView, QFrame, QComboBox,
+    QAbstractItemView, QFrame, QComboBox, QGroupBox, QScrollArea,
+    QSpinBox, QLineEdit,
 )
 from PySide6.QtCore import Qt, Signal
 
 from gui.oob_dropdowns import get_gfx_options
+from gui.oob_rich_text_editor import RichTextEditor
 
 
 MAPLOCATIONS_HEADER = [
@@ -51,24 +53,48 @@ class ScenarioTab(QWidget):
     # ── UI setup ─────────────────────────────────────────────────
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(12)
 
-        # ── Objectives section header ──
-        obj_header = QHBoxLayout()
-        obj_title = QLabel("Objectives")
-        obj_title.setStyleSheet("font-weight: bold; font-size: 12px;")
-        obj_header.addWidget(obj_title)
-        obj_header.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(16)
+
+        # ── Objectives section ─────────────────────────────────────
+        objectives_group = self._create_objectives_section()
+        scroll_layout.addWidget(objectives_group)
+
+        # ── Scenario Settings section ──────────────────────────────
+        settings_group = self._create_settings_section()
+        scroll_layout.addWidget(settings_group)
+
+        # ── Scenario Intro section ─────────────────────────────────
+        intro_group = self._create_intro_section()
+        scroll_layout.addWidget(intro_group)
+
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_content)
+        main_layout.addWidget(scroll)
+
+        # Refresh map name on first show
+        self.refresh_map_name()
+
+    # ── Sections ──────────────────────────────────────────────────
+
+    def _create_objectives_section(self) -> QGroupBox:
+        group = QGroupBox("Objectives")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
 
         self.export_btn = QPushButton("Export Map Locations")
         self.export_btn.clicked.connect(self._on_export)
-        obj_header.addWidget(self.export_btn)
+        layout.addWidget(self.export_btn)
 
-        layout.addLayout(obj_header)
-
-        # ── Single objectives table (all fields) ──
         self.objectives_table = QTableWidget()
         self.objectives_table.setColumnCount(len(MAPLOCATIONS_HEADER))
         self.objectives_table.setHorizontalHeaderLabels(MAPLOCATIONS_HEADER)
@@ -86,21 +112,143 @@ class ScenarioTab(QWidget):
 
         layout.addWidget(self.objectives_table)
 
-        # ── Separator + Scenario Settings placeholder ──
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(line)
+        return group
 
-        settings_title = QLabel("Scenario Settings")
-        settings_title.setStyleSheet("font-weight: bold; font-size: 12px;")
-        layout.addWidget(settings_title)
+    def _create_settings_section(self) -> QGroupBox:
+        group = QGroupBox("Scenario Settings")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
 
-        settings_placeholder = QLabel("Future scenario settings will appear here.")
-        settings_placeholder.setStyleSheet("color: #888888;")
-        layout.addWidget(settings_placeholder)
+        # Scenario Name
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("Scenario Name:"))
+        self.scenario_name_edit = QLineEdit()
+        self.scenario_name_edit.setPlaceholderText("Enter scenario name...")
+        name_row.addWidget(self.scenario_name_edit, 1)
+        layout.addLayout(name_row)
 
-        layout.addStretch(1)
+        # Map (read-only)
+        map_row = QHBoxLayout()
+        map_row.addWidget(QLabel("Map:"))
+        self.map_name_edit = QLineEdit()
+        self.map_name_edit.setReadOnly(True)
+        self.map_name_edit.setEnabled(False)
+        self.map_name_edit.setStyleSheet("""
+            QLineEdit:disabled {
+                color: #888888;
+                background-color: #1a1a1a;
+            }
+        """)
+        map_row.addWidget(self.map_name_edit, 1)
+        layout.addLayout(map_row)
+
+        # Start Time
+        time_row = QHBoxLayout()
+        time_row.addWidget(QLabel("Start Time:"))
+        self.hour_spin = QSpinBox()
+        self.hour_spin.setRange(0, 23)
+        self.hour_spin.setValue(8)
+        self.hour_spin.setPrefix("")
+        self.hour_spin.setSpecialValueText("00")
+        self.hour_spin.setFixedWidth(55)
+        time_row.addWidget(self.hour_spin)
+        time_row.addWidget(QLabel(":"))
+        self.minute_spin = QSpinBox()
+        self.minute_spin.setRange(0, 59)
+        self.minute_spin.setValue(0)
+        self.minute_spin.setPrefix("")
+        self.minute_spin.setSpecialValueText("00")
+        self.minute_spin.setFixedWidth(55)
+        time_row.addWidget(self.minute_spin)
+        time_row.addStretch(1)
+        layout.addLayout(time_row)
+
+        # Type
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Type:"))
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["MP", "SP", "BP"])
+        self.type_combo.setFixedWidth(80)
+        type_row.addWidget(self.type_combo)
+        type_row.addStretch(1)
+        layout.addLayout(type_row)
+
+        # Victory Conditions (indented sub-group)
+        vc_group = QGroupBox("Victory Conditions")
+        vc_group.setStyleSheet("QGroupBox { margin-left: 20px; }")
+        vc_layout = QVBoxLayout(vc_group)
+        vc_layout.setSpacing(6)
+
+        self.victory_edits: dict[str, QLineEdit] = {}
+        vc_defaults = {
+            "Major Victory": "2000",
+            "Minor Victory": "1500",
+            "Draw": "1000",
+            "Minor Defeat": "500",
+            "Major Defeat": "0",
+        }
+        for label_text in ["Major Victory", "Minor Victory", "Draw",
+                           "Minor Defeat", "Major Defeat"]:
+            row = QHBoxLayout()
+            lbl = QLabel(f"{label_text}:")
+            lbl.setFixedWidth(110)
+            row.addWidget(lbl)
+            edit = QLineEdit()
+            edit.setText(vc_defaults[label_text])
+            edit.setFixedWidth(100)
+            row.addWidget(edit)
+            row.addStretch(1)
+            vc_layout.addLayout(row)
+            self.victory_edits[label_text] = edit
+
+        layout.addWidget(vc_group)
+
+        return group
+
+    def _create_intro_section(self) -> QGroupBox:
+        group = QGroupBox("Scenario Intro")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
+
+        self.intro_editor = RichTextEditor()
+        layout.addWidget(self.intro_editor)
+
+        self.intro_editor._on_insert_details()
+
+        return group
+
+    # ── Map name ──────────────────────────────────────────────────
+
+    def refresh_map_name(self):
+        if self.map_viewer.map_ini_path:
+            map_name = Path(self.map_viewer.map_ini_path).stem
+            self.map_name_edit.setText(map_name)
+        else:
+            self.map_name_edit.setText("No map loaded")
+
+    # ── Getters ───────────────────────────────────────────────────
+
+    def get_intro_text(self) -> str:
+        return self.intro_editor.get_game_text()
+
+    def get_scenario_name(self) -> str:
+        return self.scenario_name_edit.text().strip()
+
+    def get_start_time(self) -> tuple[int, int]:
+        return (self.hour_spin.value(), self.minute_spin.value())
+
+    def get_type(self) -> str:
+        return self.type_combo.currentText()
+
+    def get_victory_conditions(self) -> dict[str, str]:
+        return {label: edit.text().strip()
+                for label, edit in self.victory_edits.items()}
+
+    # ── Intro text editor ────────────────────────────────────────
+
+    def refresh_intro_editor(self):
+        """Repopulate the intro editor with current scenario details."""
+        self.intro_editor._on_insert_details()
 
     # ── Objectives table sync ────────────────────────────────────
 
@@ -170,7 +318,6 @@ class ScenarioTab(QWidget):
         col = item.column()
         col_name = MAPLOCATIONS_HEADER[col]
 
-        # Find the objective_id from the Name column's UserRole data
         id_item = self.objectives_table.item(row, NAME_COL)
         if id_item is None:
             return
@@ -194,7 +341,6 @@ class ScenarioTab(QWidget):
                 map_item.fields["Name"] = new_value
                 map_item.fields["ID"] = new_value
                 map_item.update()
-            # Also update the ID column cell
             id_cell = self.objectives_table.item(row, ID_COL)
             if id_cell is not None and id_cell.text() != new_value:
                 id_cell.setText(new_value)

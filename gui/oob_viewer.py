@@ -1,6 +1,7 @@
 import sys
 import os
 import configparser
+import logging
 import traceback
 from datetime import datetime
 from PySide6.QtWidgets import (
@@ -33,7 +34,7 @@ def apply_dark_theme(app: QApplication) -> None:
     palette.setColor(QPalette.WindowText, QColor("#ffffff"))
     palette.setColor(QPalette.Base, QColor("#1a1a1a"))
     palette.setColor(QPalette.AlternateBase, QColor("#181818"))
-    palette.setColor(QPalette.ToolTipBase, QColor("#ffffff"))
+    palette.setColor(QPalette.ToolTipBase, QColor("#2a2a2a"))
     palette.setColor(QPalette.ToolTipText, QColor("#ffffff"))
     palette.setColor(QPalette.Text, QColor("#ffffff"))
     palette.setColor(QPalette.Button, QColor("#1f1f1f"))
@@ -138,9 +139,28 @@ def apply_dark_theme(app: QApplication) -> None:
             margin: 4px 6px;
         }
 
+        QGroupBox {
+            font-weight: bold;
+            border: 1px solid #444444;
+            border-radius: 4px;
+            margin-top: 12px;
+            padding-top: 16px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 12px;
+            padding: 0 6px;
+        }
+
         QMessageBox {
             background-color: #121212;
             color: #ffffff;
+        }
+
+        QToolTip {
+            background-color: #2a2a2a;
+            color: #ffffff;
+            border: 1px solid #444444;
         }
     """)
 
@@ -149,7 +169,7 @@ class OOBViewer(QMainWindow):
     def __init__(self, csv_path=None):
         super().__init__()
 
-        self.setWindowTitle("Order of Battle Viewer")
+        self.setWindowTitle("Mank Scourge of War Editor - v0.1")
         self.resize(1400, 900)
 
         self.data = OOBData()
@@ -187,8 +207,6 @@ class OOBViewer(QMainWindow):
         controls_container.setLayout(controls_layout)
         controls_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         controls_container.setMaximumHeight(60)
-
-        self.layout.addWidget(controls_container, 0)
 
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.left_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -228,8 +246,14 @@ class OOBViewer(QMainWindow):
         self.map_viewer.unit_removed.connect(self._on_placement_changed)
         self.map_viewer.map_loaded.connect(
             lambda path: self._save_config(**{"map-ini": path}))
+        self.map_viewer.toggle_names_cb.toggled.connect(
+            lambda checked: self._save_map_setting("toggle_names", str(checked).lower()))
+        self.map_viewer.name_level_slider.valueChanged.connect(
+            lambda value: self._save_map_setting("name_level", str(value)))
 
         self.scenario = ScenarioTab(self.map_viewer)
+        self.map_viewer.map_loaded.connect(
+            lambda path: self.scenario.refresh_map_name())
 
         self.right_tab_widget = QTabWidget()
 
@@ -241,8 +265,8 @@ class OOBViewer(QMainWindow):
         self.right_tab_widget.addTab(self.files_tab, "Files")
 
         self.right_tab_widget.addTab(self.map_viewer, "Map")
-        self.right_tab_widget.addTab(self.scenario, "Scenario")
         self.right_tab_widget.addTab(self.details, "Details")
+        self.right_tab_widget.addTab(self.scenario, "Scenario")
 
         self.battlescript_tab = QWidget()
         self.right_tab_widget.addTab(self.battlescript_tab, "Battlescript")
@@ -276,17 +300,31 @@ class OOBViewer(QMainWindow):
         # Apply saved settings
         debug_plot = self.config.get("debug_formation_plot", "true") == "true"
         set_debug_formation_plot(debug_plot)
+        debug_log = self.config.get("debug_logging", "false") == "true"
+        logging.getLogger().setLevel(logging.WARNING)
+        logging.getLogger("gui").setLevel(logging.DEBUG if debug_log else logging.WARNING)
         self.settings_tab.apply_settings(self.config)
+        self.map_viewer.set_tile_scale(int(self.config.get("tile_scale", "512")))
+        self.map_viewer.set_units_per_yard(int(self.config.get("units_per_yard", "30")))
+        self.map_viewer.set_formation_plot_level(int(self.config.get("formation_plot_level", "5")))
+
+        # Apply map name display settings
+        toggle_names = self.config.get("toggle_names", "false") == "true"
+        name_level = int(self.config.get("name_level", "3"))
+        self.map_viewer.toggle_names_cb.setChecked(toggle_names)
+        self.map_viewer.name_level_slider.setValue(name_level)
 
         if self.config.get("map-ini"):
             self.right_tab_widget.setCurrentWidget(self.map_viewer)
 
+        self.left_splitter.addWidget(controls_container)
         self.left_splitter.addWidget(self.tree)
         self.left_splitter.addWidget(self.shared_toolbar)
         self.left_splitter.addWidget(self.visual)
-        self.left_splitter.setStretchFactor(0, 1)
-        self.left_splitter.setStretchFactor(1, 0)
-        self.left_splitter.setStretchFactor(2, 2)
+        self.left_splitter.setStretchFactor(0, 0)
+        self.left_splitter.setStretchFactor(1, 1)
+        self.left_splitter.setStretchFactor(2, 0)
+        self.left_splitter.setStretchFactor(3, 2)
 
         self.main_splitter.addWidget(self.left_splitter)
         self.main_splitter.addWidget(self.right_tab_widget)
@@ -333,8 +371,15 @@ class OOBViewer(QMainWindow):
                         "template_files_enabled")
         }
         # Read settings section
-        for key in ("debug_formation_plot",):
-            result[key] = parser.get("settings", key, fallback="true")
+        defaults = {"debug_formation_plot": "true", "debug_logging": "false",
+                    "tile_scale": "512", "units_per_yard": "30",
+                    "formation_plot_level": "5"}
+        for key in defaults:
+            result[key] = parser.get("settings", key, fallback=defaults[key])
+        # Read map-settings section
+        map_defaults = {"toggle_names": "false", "name_level": "3"}
+        for key in map_defaults:
+            result[key] = parser.get("map-settings", key, fallback=map_defaults[key])
         return result
 
     def _save_config(self, **kwargs):
@@ -368,9 +413,31 @@ class OOBViewer(QMainWindow):
         with open(config_path, "w") as f:
             parser.write(f)
 
+    def _save_map_setting(self, key: str, value: str):
+        config_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config")
+        config_path = os.path.join(config_dir, "app_config.ini")
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+        parser = configparser.ConfigParser()
+        parser.read(config_path)
+        if "map-settings" not in parser:
+            parser.add_section("map-settings")
+        parser.set("map-settings", key, value)
+        with open(config_path, "w") as f:
+            parser.write(f)
+
     def _on_setting_changed(self, key: str, value: str):
         if key == "debug_formation_plot":
             set_debug_formation_plot(value == "true")
+        elif key == "debug_logging":
+            logging.getLogger().setLevel(logging.WARNING)
+            logging.getLogger("gui").setLevel(logging.DEBUG if value == "true" else logging.WARNING)
+        elif key == "tile_scale":
+            self.map_viewer.set_tile_scale(int(value))
+        elif key == "units_per_yard":
+            self.map_viewer.set_units_per_yard(int(value))
         self._save_setting(key, value)
 
     def _on_file_changed(self, config_key: str, file_path: str):
@@ -421,11 +488,25 @@ class OOBViewer(QMainWindow):
             self._save_config(oob=path)
 
     def save_scenario_dialog(self):
+        import re as _re
         base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Output")
         os.makedirs(base_dir, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        scenario_dir = os.path.join(base_dir, f"Generated_Scenario_{timestamp}")
+        scenario_name = self.scenario.get_scenario_name().strip()
+        if scenario_name:
+            safe_name = _re.sub(r'[<>:"/\\|?*]', '_', scenario_name)
+            scenario_dir = os.path.join(base_dir, safe_name)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            scenario_dir = os.path.join(base_dir, f"Generated_Scenario_{timestamp}")
+
+        if os.path.exists(scenario_dir):
+            reply = QMessageBox.question(
+                self, "Folder Exists",
+                f"The folder already exists:\n{scenario_dir}\n\nOverwrite?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
 
         placed_units = self.map_viewer.get_placed_units_data()
 
@@ -438,8 +519,15 @@ class OOBViewer(QMainWindow):
 
         objectives = self.map_viewer.get_all_objectives_data()
 
+        intro_text = self.scenario.get_intro_text()
+
+        hour, minute = self.scenario.get_start_time()
+        start_time = f"{hour:02d}:{minute:02d}:00"
+
+        victory_conditions = self.scenario.get_victory_conditions()
+
         try:
-            self.data.save_scenario(scenario_dir, map_name, oob_filename, placed_units, objectives)
+            self.data.save_scenario(scenario_dir, map_name, oob_filename, placed_units, objectives, intro_text=intro_text, start_time=start_time, victory_conditions=victory_conditions)
             QMessageBox.information(
                 self, "Save Successful",
                 f"Scenario file saved to:\n{scenario_dir}")
@@ -570,6 +658,7 @@ class OOBViewer(QMainWindow):
             self.tree.populate()
             self.visual.populate()
             self.details.clear()
+            self.scenario.refresh_intro_editor()
 
             self.save_button.setEnabled(True)
             self.save_scenario_button.setEnabled(True)

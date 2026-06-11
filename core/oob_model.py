@@ -199,7 +199,7 @@ class OOBData:
         df.to_csv(path, encoding="cp1252", index=False)
         self.filepath = path
 
-    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None) -> None:
+    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None, intro_text: str = "", start_time: str = "", victory_conditions: dict = None) -> None:
         import os
         df = self._df_sorted_by_hierarchy(self._ensure_df().copy())
         if "line_number" in df.columns:
@@ -280,6 +280,12 @@ class OOBData:
 
         _copy_templates(scenario_dir)
 
+        # Write custom intro text if provided, overwriting the template default
+        if intro_text:
+            intro_path = os.path.join(scenario_dir, "EnglishScenIntro.txt")
+            with open(intro_path, "w", encoding="cp1252") as f:
+                f.write(intro_text)
+
         # Write objectives to maplocations.csv
         if objectives:
             maplocations_header = [
@@ -297,19 +303,38 @@ class OOBData:
                     row = ",".join(str(fields.get(col, "")) for col in maplocations_header)
                     f.write(row + "\n")
 
-        if map_name:
+        if map_name or start_time or victory_conditions:
             ini_path = os.path.join(scenario_dir, "scenario.ini")
             if os.path.exists(ini_path):
                 with open(ini_path, "r", encoding="cp1252") as f:
                     lines = f.readlines()
-                in_init = False
+
+                # Map victory condition labels to ini section names
+                vc_section_map = {
+                    "Major Victory": "endmajwin",
+                    "Minor Victory": "endwin",
+                    "Draw": "endtie",
+                    "Minor Defeat": "endfail",
+                    "Major Defeat": "endmajfail",
+                }
+
+                in_section = None
+                vc_inserted = set()
                 for i, line in enumerate(lines):
                     stripped = line.strip().lower()
                     if stripped.startswith("[") and stripped.endswith("]"):
-                        in_init = (stripped == "[init]")
-                    elif in_init and stripped.startswith("map="):
+                        in_section = stripped[1:-1]
+                    elif in_section == "init" and stripped.startswith("map=") and map_name:
                         lines[i] = f"map={map_name}\n"
-                        break
+                    elif in_section == "init" and stripped.startswith("starttime=") and start_time:
+                        lines[i] = f"starttime={start_time}\n"
+                    elif victory_conditions and in_section in vc_section_map.values() and in_section not in vc_inserted:
+                        vc_label = {v: k for k, v in vc_section_map.items()}.get(in_section)
+                        if vc_label and vc_label in victory_conditions and stripped.startswith("article="):
+                            points = victory_conditions[vc_label]
+                            lines.insert(i + 1, f"grade={points}\n")
+                            vc_inserted.add(in_section)
+
                 with open(ini_path, "w", encoding="cp1252") as f:
                     f.writelines(lines)
 
@@ -843,7 +868,7 @@ class OOBData:
             for i, hcol in enumerate(HIERARCHY_COLS):
                 new_row[hcol] = new_prefix[i] if i < source_level - 1 else (
                     new_l_value if i == source_level - 1 else 0)
-            new_row["line_number"] = ""
+            new_row["line_number"] = -1
 
             # Determine actual parent row for modifier resolution
             if peer_drop:
@@ -1258,15 +1283,18 @@ class OOBData:
 
         Walks the tree top-down and renumbers children 1, 2, 3, ...
         under each parent.  Subtrees move with their parent.
+        Root (Side-level) nodes are also renumbered sequentially to fill
+        any gaps left by deleted sides.
         """
         self._ensure_built()
         if self.df is None or len(self.df) == 0:
             return
 
-        # Build a mapping from row_index -> parent_key -> children list
         # Start from root nodes (those not in _children_set)
         roots = [i for i in range(len(self.df))
                  if i not in self._children_set and self.get_level(i) is not None]
+        # Sort by current hierarchy key for stable ordering
+        roots.sort(key=lambda idx: tuple(self._hierarchy_keys[idx].tolist()))
 
         # Build a new hierarchy keys array (copy current)
         new_keys = self._hierarchy_keys.copy()
@@ -1290,9 +1318,16 @@ class OOBData:
                 # Recurse
                 renumber_children(child_idx, tuple(new_key))
 
-        for root_idx in roots:
-            root_key = tuple(new_keys[root_idx].tolist())
-            renumber_children(root_idx, root_key)
+        for side_num, root_idx in enumerate(roots, start=1):
+            # Renumber the root (Side-level) node itself
+            root_level = int(self._level_by_row[root_idx])
+            root_level_col_idx = root_level - 1
+            new_root_key = list(new_keys[root_idx])
+            new_root_key[root_level_col_idx] = side_num
+            for j in range(root_level_col_idx + 1, 6):
+                new_root_key[j] = 0
+            new_keys[root_idx] = np.array(new_root_key, dtype=np.int64)
+            renumber_children(root_idx, tuple(new_root_key))
 
         # Write new keys back to the DataFrame
         for i, hcol in enumerate(HIERARCHY_COLS):

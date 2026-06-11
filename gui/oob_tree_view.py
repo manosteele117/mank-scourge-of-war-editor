@@ -979,7 +979,7 @@ class OOBTreeWidget(QTreeWidget):
 
             # Phase 2: Build preview with resolved modifiers
             try:
-                preview_nodes, counts_by_level, total_head = self._build_preview_tree(config)
+                preview_nodes, counts_by_level, counts_by_cfg, total_head = self._build_preview_tree(config)
             except Exception as e:
                 QMessageBox.critical(self, "Preview Error",
                                      f"Failed to build preview:\n\n"
@@ -992,24 +992,54 @@ class OOBTreeWidget(QTreeWidget):
                 return
 
             # Build settings summary text
+            _BRANCH_ABBREV = {"INF": "Inf", "CAV": "Cav", "ART": "Art"}
+            _BRANCH_UNIT_NAMES = {
+                5: {"INF": "Brigades", "CAV": "Brigades", "ART": "Batteries"},
+                6: {"INF": "Regiments", "CAV": "Squadrons", "ART": "Guns"},
+            }
+
+            def _settings_label(cfg: dict) -> str:
+                lvl = cfg["level"]
+                branch = cfg.get("branch")
+                lname = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
+                if branch and lvl in _BRANCH_UNIT_NAMES:
+                    bname = _BRANCH_ABBREV.get(branch, branch)
+                    uname = _BRANCH_UNIT_NAMES[lvl].get(branch, f"{lname}s")
+                    return f"Lvl {lvl} {bname} {uname}"
+                return f"Lvl {lvl} {lname}s"
+
             settings_lines = [f"Selected Parent: {items[0].text(0)}", "", "Settings:"]
             for cfg in config:
                 if cfg["min"] == 0 and cfg["max"] == 0:
                     continue
-                lvl = cfg["level"]
-                lname = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
                 tname = cfg["template"]["name"] if cfg["template"] else "(none)"
+                label = _settings_label(cfg)
                 if cfg["min"] == cfg["max"]:
-                    settings_lines.append(f"  Lvl {lvl} {lname}s: {cfg['min']} x {tname}")
+                    settings_lines.append(f"  {label}: {cfg['min']} x {tname}")
                 else:
-                    settings_lines.append(f"  Lvl {lvl} {lname}s: {cfg['min']}-{cfg['max']} x {tname}")
+                    settings_lines.append(f"  {label}: {cfg['min']}-{cfg['max']} x {tname}")
             settings_text = "\n".join(settings_lines)
 
             # Build unit count summary
+            _BRANCH_FULL = {"INF": "Infantry", "CAV": "Cavalry", "ART": "Artillery"}
+
+            def _count_label(count: int, cfg: dict) -> str:
+                lvl = cfg["level"]
+                branch = cfg.get("branch")
+                if branch and lvl in _BRANCH_UNIT_NAMES:
+                    bname = _BRANCH_FULL.get(branch, branch)
+                    uname = _BRANCH_UNIT_NAMES[lvl].get(branch, "")
+                else:
+                    bname = ""
+                    uname = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
+                suffix = "s" if count != 1 else ""
+                return f"{count} {bname} {uname}{suffix}".strip()
+
             count_parts = []
-            for lvl in sorted(counts_by_level.keys()):
-                lname = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
-                count_parts.append(f"{counts_by_level[lvl]} {lname}{'s' if counts_by_level[lvl] != 1 else ''}")
+            for cfg_idx, cfg in enumerate(config):
+                cfg_count = counts_by_cfg.get(cfg_idx, 0)
+                if cfg_count > 0:
+                    count_parts.append(_count_label(cfg_count, cfg))
             summary_text = f"Created {', '.join(count_parts)}. Total of {total_head:,} men."
 
             # Phase 3: Confirmation dialog with preview tree
@@ -1054,12 +1084,23 @@ class OOBTreeWidget(QTreeWidget):
         Each node stores its fully resolved row_dict so that the exact same
         data is inserted on confirm (no re-resolution of modifiers).
 
-        Returns (top_level_nodes, counts_by_level, total_head_count).
+        Returns (top_level_nodes, counts_by_level, counts_by_cfg, total_head_count).
         """
         from constants import HIERARCHY_COLS, LEVEL_NAMES, INT_COLUMNS
         synthetic_parent = -1
         counts_by_level: dict[int, int] = {}
+        counts_by_cfg: dict[int, int] = {}
         total_head = 0
+
+        _BRANCH_LEVEL_NAMES = {
+            5: {"INF": "Brigades", "CAV": "Brigades", "ART": "Batteries"},
+            6: {"INF": "Regiments", "CAV": "Squadrons", "ART": "Guns"},
+        }
+
+        def _level_display_name(lvl: int, branch: str | None) -> str:
+            if branch and lvl in _BRANCH_LEVEL_NAMES:
+                return _BRANCH_LEVEL_NAMES[lvl].get(branch, LEVEL_NAMES[lvl - 1])
+            return LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
 
         def build_level(parent_idx: int, cfg_idx: int) -> tuple[list[dict], int]:
             nonlocal synthetic_parent
@@ -1073,8 +1114,10 @@ class OOBTreeWidget(QTreeWidget):
                 return [], 0
 
             lvl = cfg["level"]
+            branch = cfg.get("branch")
             count = random.randint(cfg["min"], cfg["max"])
             counts_by_level[lvl] = counts_by_level.get(lvl, 0) + count
+            counts_by_cfg[cfg_idx] = counts_by_cfg.get(cfg_idx, 0) + count
             nodes = []
             level_head = 0
 
@@ -1112,18 +1155,13 @@ class OOBTreeWidget(QTreeWidget):
                 except (ValueError, TypeError):
                     side = 0
 
-                level_name = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else '?'
-                if lvl == 6:
-                    class_val = str(row_dict.get("CLASS", "")).upper()
-                    if "_CAV_" in class_val:
-                        level_name = "Squadron"
-                    elif "_ART_" in class_val:
-                        level_name = "Gun"
+                level_name = _level_display_name(lvl, branch)
                 level_info_str = f"{level_name} (1)"
 
                 node = {
                     "name": name,
                     "level": lvl,
+                    "branch": branch,
                     "level_info": level_info_str,
                     "head_count": hc,
                     "experience": exp,
@@ -1144,7 +1182,7 @@ class OOBTreeWidget(QTreeWidget):
 
         top_nodes, total_head = build_level(synthetic_parent, 0)
         self._compute_preview_aggregates(top_nodes)
-        return top_nodes, counts_by_level, total_head
+        return top_nodes, counts_by_level, counts_by_cfg, total_head
 
     def _compute_preview_aggregates(self, nodes: list[dict]) -> None:
         """Compute subtree_strength and subtree_experience for each preview node."""
@@ -1209,7 +1247,7 @@ class OOBTreeWidget(QTreeWidget):
                 else:
                     resolved_row[hcol] = 0
 
-            resolved_row["line_number"] = ""
+            resolved_row["line_number"] = -1
 
             # Assign unique ID
             template_id = str(resolved_row.get("ID", "")).strip()

@@ -106,6 +106,10 @@ class OOBDetailsWidget(QWidget):
             self.clear()
             return
 
+        if row_index < 0 or row_index >= len(self.data.df):
+            self.clear()
+            return
+
         self.current_row_index = row_index
         row = self.data.df.iloc[row_index]
         columns = list(row.index)

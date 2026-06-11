@@ -1,18 +1,23 @@
 import PySide6.QtGui
 import os
 import json
+import logging
 import configparser
 import traceback
+import time
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import math
+
+logger = logging.getLogger(__name__)
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox,
     QSlider, QFileDialog, QMessageBox, QSizePolicy, QGraphicsView, QGraphicsScene,
     QGraphicsItem, QGraphicsItemGroup, QGraphicsLineItem, QGraphicsEllipseItem, QMenu,
+    QCheckBox, QComboBox, QFrame,
 )
-from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor, QPainterPath, QPolygonF, QPainterPathStroker
+from PySide6.QtGui import QPixmap, QFont, QPainter, QImage, QPen, QBrush, QColor, QPainterPath, QPolygonF, QPainterPathStroker, QFontMetrics
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PIL import Image
 
@@ -359,7 +364,8 @@ class MapUnitItem(QGraphicsItem):
         self.origin_offset_x = self.DEFAULT_RECT_WIDTH / 2
         self.origin_offset_y = self.DEFAULT_RECT_HEIGHT / 2
 
-        self.refresh_dimensions()
+        # NOTE: refresh_dimensions() is NOT called here.
+        # It is called explicitly in _place_unit so we can time it separately.
         
         self.setData(Qt.UserRole, unit_row_index)
         self.setAcceptHoverEvents(True)
@@ -367,7 +373,8 @@ class MapUnitItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setRotation(0)
-        self._rebuild_scene_geometry()
+        # NOTE: _rebuild_scene_geometry() is NOT called here.
+        # The first setPos() call triggers itemChange() which rebuilds automatically.
 
     def refresh_dimensions(self, archetype_id: str = None):
         # Artillery units: fixed cannon dimensions, not formation-based
@@ -463,6 +470,10 @@ class MapUnitItem(QGraphicsItem):
     def _make_branch_shape(self, branch, cx, cy, r):
         """Create a closed QPainterPath for the given branch shape at radius r."""
         path = QPainterPath()
+        if branch == "cavalry":
+            r = r * 1.25
+        elif branch == "artillery":
+            r = r * 0.75
         if branch == "infantry":
             # Flat-top hexagon
             import math
@@ -853,10 +864,10 @@ class MapUnitItem(QGraphicsItem):
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(QBrush(QColor("#ffffff")))
                     diamond = QPainterPath()
-                    diamond.moveTo(mx, my - marker_r)
-                    diamond.lineTo(mx + marker_r / 2, my)
-                    diamond.lineTo(mx, my + marker_r)
-                    diamond.lineTo(mx - marker_r / 2, my)
+                    diamond.moveTo(mx, my - marker_r * 2)
+                    diamond.lineTo(mx + marker_r, my)
+                    diamond.lineTo(mx, my + marker_r * 2)
+                    diamond.lineTo(mx - marker_r, my)
                     diamond.closeSubpath()
                     painter.drawPath(diamond)
                 elif mtype == "dot":
@@ -870,6 +881,40 @@ class MapUnitItem(QGraphicsItem):
             painter.setPen(arrow_pen)
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(self._scene_facing_path)
+
+        # Draw name label below icon
+        if (self.map_widget is not None
+                and self.map_widget._show_names
+                and self.map_widget._name_field
+                and self.level <= 5 - self.map_widget._name_level):
+            text = self.map_widget.get_unit_field_value(
+                self.unit_row_index, self.map_widget._name_field)
+            if text:
+                scale = self.map_widget.world_to_scene_scale()
+                text_y = self.CMD_SIZE * 0.6 * scale
+
+                font_size = max(3, 8 - self.level)
+                font = QFont("Arial", font_size)
+                font.setWeight(QFont.Weight.Bold)
+                fm = QFontMetrics(font)
+                text_width = fm.horizontalAdvance(text)
+                x = -text_width / 2
+                y = text_y + fm.ascent()
+
+                side_color = get_side_color(self.side)
+                stroker = QPainterPathStroker()
+                stroker.setWidth(0.5)
+
+                text_path = QPainterPath()
+                text_path.addText(QPointF(x, y), font, text)
+
+                border_path = stroker.createStroke(text_path)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor("#ffffff"))
+                painter.drawPath(border_path)
+
+                painter.setBrush(side_color)
+                painter.drawPath(text_path)
 
     def _draw_x(self, painter, cx, cy, size):
         """Draw an X marker."""
@@ -932,12 +977,18 @@ class OOBMapWidget(QWidget):
         self.placed_by_row: Dict[int, MapUnitItem] = {}
         self._highlighted: set = set()
         self.unit_count_label = None
+        self._suppress_placed_signal: bool = False  # True during bulk placement in apply_formation
 
         self.placed_objectives: List[MapObjectiveItem] = []
         self.placed_objective_ids: set = set()
         self.objectives_by_id: Dict[int, MapObjectiveItem] = {}
         self._next_objective_id: int = 1
         self._objective_placement_mode: bool = False
+
+        self._show_names: bool = False
+        self._name_field: str = "NAME2"
+        self._formation_plot_level: int = 5
+        self._name_level: int = 0  # slider position: 0=2+, 1=3, 2=4, 3=5
 
         self.init_ui()
         if map_ini:
@@ -948,6 +999,10 @@ class OOBMapWidget(QWidget):
     def init_ui(self):
         main_layout = QVBoxLayout()
 
+        control_container = QVBoxLayout()
+        control_container.setContentsMargins(0, 0, 0, 0)
+        control_container.setSpacing(4)
+
         control_layout = QHBoxLayout()
         control_layout.setContentsMargins(0, 0, 0, 0)
         control_layout.setSpacing(8)
@@ -955,28 +1010,6 @@ class OOBMapWidget(QWidget):
         self.load_button = QPushButton("Load Map")
         self.load_button.clicked.connect(self.load_map)
         control_layout.addWidget(self.load_button)
-
-        tile_scale_label = QLabel("Tile Scale:")
-        control_layout.addWidget(tile_scale_label)
-
-        self.tile_scale_spinbox = QSpinBox()
-        self.tile_scale_spinbox.setMinimum(1)
-        self.tile_scale_spinbox.setMaximum(4096)
-        self.tile_scale_spinbox.setValue(512)
-        self.tile_scale_spinbox.setToolTip("Default: 512. Controls coordinate scaling.")
-        self.tile_scale_spinbox.valueChanged.connect(self.on_tile_scale_changed)
-        control_layout.addWidget(self.tile_scale_spinbox)
-
-        upy_label = QLabel("Units Per Yard:")
-        control_layout.addWidget(upy_label)
-
-        self.units_per_yard_spinbox = QSpinBox()
-        self.units_per_yard_spinbox.setMinimum(1)
-        self.units_per_yard_spinbox.setMaximum(256)
-        self.units_per_yard_spinbox.setValue(30)
-        self.units_per_yard_spinbox.setToolTip("Default: 30. Units displayed per yard on the map.")
-        self.units_per_yard_spinbox.valueChanged.connect(self.on_units_per_yard_changed)
-        control_layout.addWidget(self.units_per_yard_spinbox)
 
         self.unit_count_label = QLabel("Units: 0")
         self.unit_count_label.setMaximumWidth(100)
@@ -1004,19 +1037,74 @@ class OOBMapWidget(QWidget):
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.opacity_slider.setRange(0, 100)
         self.opacity_slider.setValue(100)
-        self.opacity_slider.setMaximumWidth(120)
+        self.opacity_slider.setMaximumWidth(50)
+        self.opacity_slider.setMinimumWidth(50)
         self.opacity_slider.setToolTip("Loaded minimap opacity")
         self.opacity_slider.valueChanged.connect(self.on_minimap_opacity_changed)
         control_layout.addWidget(self.opacity_slider)
 
         control_layout.addStretch()
+        control_container.addLayout(control_layout)
 
         control_widget = QWidget()
-        control_widget.setLayout(control_layout)
+        control_widget.setLayout(control_container)
         main_layout.addWidget(control_widget, 0)
 
+        # Info label + vertical separator + toggle names on same row
+        info_row = QHBoxLayout()
+        info_row.setContentsMargins(0, 0, 0, 0)
+        info_row.setSpacing(8)
+
         self.info_label = QLabel("No map loaded")
-        main_layout.addWidget(self.info_label, 0)
+        self.info_label.setMinimumWidth(100)
+        info_row.addWidget(self.info_label, 1)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        info_row.addWidget(sep)
+
+        name_settings_row = QHBoxLayout()
+        name_settings_row.setContentsMargins(0, 0, 0, 0)
+        name_settings_row.setSpacing(8)
+
+        self.toggle_names_cb = QCheckBox("Toggle Names")
+        self.toggle_names_cb.toggled.connect(self._on_toggle_names)
+        name_settings_row.addWidget(self.toggle_names_cb)
+
+        self.name_level_slider = QSlider(Qt.Horizontal)
+        self.name_level_slider.setRange(0, 3)
+        self.name_level_slider.setTickPosition(QSlider.TicksBelow)
+        self.name_level_slider.setTickInterval(1)
+        self.name_level_slider.setValue(0)
+        self.name_level_slider.setFixedWidth(80)
+        self.name_level_slider.setEnabled(False)
+        self.name_level_slider.setToolTip("Minimum hierarchy level to show names")
+        self.name_level_slider.valueChanged.connect(self._on_name_level_changed)
+        name_settings_row.addWidget(self.name_level_slider)
+
+        self.name_level_label = QLabel("5+")
+        self.name_level_label.setStyleSheet("font-size: 10px;")
+        self.name_level_label.setMinimumWidth(20)
+        name_settings_row.addWidget(self.name_level_label)
+
+        self.name_field_combo = QComboBox()
+        self.name_field_combo.addItems(["Name", "NAME1", "NAME2", "ID"])
+        self.name_field_combo.setCurrentText("NAME2")
+        self.name_field_combo.setMaximumWidth(100)
+        self.name_field_combo.setEnabled(False)
+        self.name_field_combo.setStyleSheet("""
+            QComboBox:disabled {
+                color: #666666;
+                background-color: #1a1a1a;
+            }
+        """)
+        self.name_field_combo.currentTextChanged.connect(self._on_name_field_changed)
+        name_settings_row.addWidget(self.name_field_combo)
+
+        info_row.addLayout(name_settings_row)
+
+        main_layout.addLayout(info_row)
 
         self.minimap_scene = QGraphicsScene()
         self.minimap_view = OOBMapGraphicsView(self.minimap_scene, self)
@@ -1230,12 +1318,15 @@ class OOBMapWidget(QWidget):
 
         self.coord_label.setText(f"Coordinates: ({world_x}, {world_y})")
 
-    def on_tile_scale_changed(self, value: int):
+    def set_tile_scale(self, value: int):
         self.tile_scale = value
         self._update_placed_unit_positions()
 
-    def on_units_per_yard_changed(self, value: int):
+    def set_units_per_yard(self, value: int):
         self.units_per_yard = value
+
+    def set_formation_plot_level(self, value: int):
+        self._formation_plot_level = value
 
     def on_minimap_opacity_changed(self, value: int):
         if self.minimap_pixmap_item is not None:
@@ -1248,6 +1339,38 @@ class OOBMapWidget(QWidget):
         self.swap_button.setText(
             "Swap to Minimap" if self.showing_grayscale else "Swap to Grayscale")
         self.display_minimap()
+
+    def _on_toggle_names(self, checked: bool):
+        self._show_names = checked
+        self.name_field_combo.setEnabled(checked)
+        self.name_level_slider.setEnabled(checked)
+        self._update_all_name_labels()
+
+    def _on_name_field_changed(self, field: str):
+        self._name_field = field
+        self._update_all_name_labels()
+
+    def _on_name_level_changed(self, value: int):
+        labels = ["5+", "4+", "3+", "2+"]
+        self._name_level = value
+        self.name_level_label.setText(labels[value])
+        self._update_all_name_labels()
+
+    def _update_all_name_labels(self):
+        for item in self.minimap_scene.items():
+            if isinstance(item, MapUnitItem):
+                item.update()
+
+    def get_unit_field_value(self, row_index: int, field: str) -> str:
+        row = self.oob_data.get_row(row_index)
+        return str(row.get(field, "")) if row is not None else ""
+
+    def world_to_scene_scale(self) -> float:
+        if self.tga_width is None or self.tga_height is None or self.minimap_pixmap_item is None:
+            return 1.0
+        pixmap_rect = self.minimap_pixmap_item.boundingRect()
+        world_width = self.tile_scale * self.tga_width
+        return pixmap_rect.width() / world_width
 
     # ==================== Unit Placement Methods ====================
 
@@ -1301,11 +1424,12 @@ class OOBMapWidget(QWidget):
             level=level, formation=unit_info.formation, world_x=world_x,
             world_y=world_y, head_count=unit_info.head_count,
             class_value=unit_info.class_value, map_widget=self)
+        unit_item.refresh_dimensions()
 
         scene_pos = self.world_to_scene(world_x, world_y)
         unit_item.setPos(scene_pos)
         unit_item.setZValue(7 - level)  # level 1 = top (z6), level 6 = bottom (z1)
-        unit_item._rebuild_scene_geometry()
+        # NOTE: _rebuild_scene_geometry() already ran via itemChange from setPos()
 
         self.minimap_scene.addItem(unit_item)
         self.placed_units.append(unit_item)
@@ -1313,7 +1437,8 @@ class OOBMapWidget(QWidget):
         self.placed_by_row[row_index] = unit_item
 
         self._update_unit_count()
-        self.unit_placed.emit(row_index, world_x, world_y)
+        if not self._suppress_placed_signal:
+            self.unit_placed.emit(row_index, world_x, world_y)
 
     def build_strength(self, row_index: int, archetype_id: str = None) -> ActualFormation:
         return self.oob_data.build_strength(row_index, archetype_id=archetype_id)
@@ -1629,16 +1754,18 @@ class OOBMapWidget(QWidget):
             QMessageBox.warning(self, "Error", "OOB data not loaded.")
             return
         try:
+            t_start = time.perf_counter()
             parent_row_index = parent_unit_item.unit_row_index
             parent_row = self.oob_data.get_row(parent_row_index)
 
             parent_formation = self.build_strength(parent_row_index, archetype_id=formation_type)
             positions = parent_formation.get_positions()
 
+            # 2) Plot for THIS node (matplotlib popup, if enabled)
             if DEBUG_FORMATION_PLOT:
                 from core.utilities import plot_rectangles
                 level = self.oob_data.get_level(parent_row_index)
-                if level < 5:
+                if level <= self._formation_plot_level:
                     plot_rectangles(
                         positions,
                         title=f"{formation_type} —idx:{parent_row_index} {parent_row.get('Name', '')}",
@@ -1679,6 +1806,9 @@ class OOBMapWidget(QWidget):
                 seq_to_sub[i] = (sub_row_index, sub_row)
 
             units_to_select = [parent_unit_item]
+
+            child_place_count = 0
+            self._suppress_placed_signal = True  # Defer unit_placed signals during bulk placement
 
             angle_rad = math.radians(parent_unit_item.rotation())
             cos_a = math.cos(angle_rad)
@@ -1739,6 +1869,7 @@ class OOBMapWidget(QWidget):
                         head_count=int(sub_row.get("Head Count", 0) or 0),
                     )
                     self._place_unit(sub_info, world_x, world_y)
+                    child_place_count += 1
                     unit_item = self.placed_by_row.get(sub_row_index)
                     if unit_item is not None:
                         unit_item.setRotation(parent_unit_item.rotation())
@@ -1750,6 +1881,14 @@ class OOBMapWidget(QWidget):
 
             for unit in units_to_select:
                 unit.setSelected(True)
+
+            # Emit a single placement-changed signal for all children placed in this call
+            self._suppress_placed_signal = False
+            if child_place_count > 0:
+                self.unit_placed.emit(parent_row_index, parent_unit_item.world_x, parent_unit_item.world_y)
+
+            elapsed_ms = (time.perf_counter() - t_start) * 1000
+            logger.debug("apply_formation [%s] idx=%d: %.1f ms", formation_type, parent_row_index, elapsed_ms)
 
         except Exception as e:
             QMessageBox.critical(

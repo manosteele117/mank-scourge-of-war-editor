@@ -2,14 +2,8 @@
 __pycache__
 
 # no csv, unless on whitelist
-*.csv
-!test.csv
-!default_templates.csv
-!allied_templates.csv 
-!confederate_templates.csv
-!french_templates.csv
-!union_templates.csv
-!oob_headers.csv
+OOB*.csv
+user_templates.csv
 
 Output/
 config/
