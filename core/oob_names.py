@@ -6,6 +6,7 @@ is written to a new <scenario_name>_OOBNames.xml in the scenario directory.
 """
 
 import os
+import re
 import xml.etree.ElementTree as ET
 from typing import Set, Optional
 
@@ -14,9 +15,16 @@ import pandas as pd
 
 def parse_existing_ids(xml_path: str) -> Set[str]:
     """Parse OOBNames.xml and return set of all defined Tag names."""
-    tree = ET.parse(xml_path)
-    root = tree.getroot()
-    return {tag.get("name") for tag in root.findall("Tag")}
+    with open(xml_path, "rb") as f:
+        raw = f.read()
+    raw = raw.lstrip(b"\xef\xbb\xbf")
+    text = raw.decode("utf-8", errors="replace")
+    text = re.sub(r"<\?xml[^>]*\?>", '<?xml version="1.0" encoding="utf-8"?>', text, count=1)
+    try:
+        root = ET.fromstring(text)
+        return {tag.get("name") for tag in root.findall("Tag")}
+    except ET.ParseError:
+        return set(re.findall(r'<Tag\s+name="([^"]*)"', text))
 
 
 def generate_oob_names_xml(
