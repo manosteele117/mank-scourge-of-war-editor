@@ -73,7 +73,9 @@ def generate_oob_names_xml(
     filename = f"{scenario_name}_OOBNames.xml" if scenario_name else "OOBNames.xml"
     path = os.path.join(output_dir, filename)
     tree = ET.ElementTree(root)
-    tree.write(path, encoding="UTF-8", xml_declaration=True)
+    with open(path, "wb") as f:
+        f.write(b'<?xml version="1.0" encoding="utf-8"?>\n')
+        tree.write(f, encoding="utf-8", xml_declaration=False)
     print(f"Generated OOBNames.xml with {len(missing)} new entry/entries: {path}")
     return path
 
