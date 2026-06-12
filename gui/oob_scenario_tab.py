@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox,
     QAbstractItemView, QFrame, QComboBox, QGroupBox, QScrollArea,
-    QSpinBox, QLineEdit,
+    QSpinBox, QLineEdit, QSizePolicy,
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -67,17 +67,27 @@ class ScenarioTab(QWidget):
 
         # ── Objectives section ─────────────────────────────────────
         objectives_group = self._create_objectives_section()
-        scroll_layout.addWidget(objectives_group)
+        scroll_layout.addWidget(objectives_group, 0)
 
-        # ── Scenario Settings section ──────────────────────────────
+        # ── Settings + Intro side by side ──────────────────────────
+        settings_intro_row = QHBoxLayout()
+        settings_intro_row.setSpacing(12)
+
         settings_group = self._create_settings_section()
-        scroll_layout.addWidget(settings_group)
+        settings_group.setSizePolicy(
+            settings_group.sizePolicy().horizontalPolicy(),
+            QSizePolicy.Expanding,
+        )
+        settings_intro_row.addWidget(settings_group, 1)
 
-        # ── Scenario Intro section ─────────────────────────────────
         intro_group = self._create_intro_section()
-        scroll_layout.addWidget(intro_group)
+        intro_group.setSizePolicy(
+            intro_group.sizePolicy().horizontalPolicy(),
+            QSizePolicy.Expanding,
+        )
+        settings_intro_row.addWidget(intro_group, 2)
 
-        scroll_layout.addStretch()
+        scroll_layout.addLayout(settings_intro_row, 1)
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
@@ -177,6 +187,10 @@ class ScenarioTab(QWidget):
         # Victory Conditions (indented sub-group)
         vc_group = QGroupBox("Victory Conditions")
         vc_group.setStyleSheet("QGroupBox { margin-left: 20px; }")
+        vc_group.setSizePolicy(
+            vc_group.sizePolicy().horizontalPolicy(),
+            QSizePolicy.Fixed,
+        )
         vc_layout = QVBoxLayout(vc_group)
         vc_layout.setSpacing(6)
 
@@ -203,6 +217,8 @@ class ScenarioTab(QWidget):
             self.victory_edits[label_text] = edit
 
         layout.addWidget(vc_group)
+
+        layout.addStretch()
 
         return group
 

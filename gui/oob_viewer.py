@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
     QSizePolicy, QFileDialog, QLabel, QPushButton, QSplitter, QMessageBox, QTabWidget,
     QFrame, QDialog, QDialogButtonBox, QScrollArea,
 )
-from PySide6.QtGui import QColor, QPalette, QIcon
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette, QIcon, QDesktopServices
+from PySide6.QtCore import Qt, QUrl
 
 from core.app_config import AppConfig
 from core.oob_model import OOBData
@@ -485,8 +485,27 @@ class OOBViewer(QMainWindow):
                 inner_scenario_name=inner_name,
                 auto_fill_supply=auto_fill_supply,
             )
-            QMessageBox.information(self, "Save Successful",
-                                    f"Scenario file saved to:\n{scenario_dir}")
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Save Successful")
+            dlg.setMinimumWidth(400)
+            dlg_layout = QVBoxLayout(dlg)
+
+            text_label = QLabel("Scenario file saved to:")
+            text_label.setWordWrap(True)
+
+            link_label = QLabel(
+                f'<a href="file:///{scenario_dir}" style="color:#2979ff;">{scenario_dir}</a>')
+            link_label.setOpenExternalLinks(True)
+            link_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            link_label.setWordWrap(True)
+
+            dlg_layout.addWidget(text_label)
+            dlg_layout.addWidget(link_label)
+
+            ok_btn = QPushButton("OK")
+            ok_btn.clicked.connect(dlg.accept)
+            dlg_layout.addWidget(ok_btn, alignment=Qt.AlignRight)
+            dlg.exec()
         except Exception as e:
             QMessageBox.critical(self, "Save Error",
                                  f"Failed to save scenario to:\n{scenario_dir}\n\n"

@@ -140,7 +140,7 @@ class RichTextEditor(QWidget):
         # Image (disabled - not yet implemented)
         self._image_action = toolbar.addAction("Img")
         self._image_action.setEnabled(False)
-        self._image_action.setToolTip("This is a feature of the game's scenario intro screen but I haven't figured out accessing the available images yet")
+        self._image_action.setToolTip("This is a feature of the game's scenario intro screen that would be cool to configure in the future.")
 
         layout.addWidget(toolbar)
 
@@ -149,6 +149,9 @@ class RichTextEditor(QWidget):
         self.editor.setAcceptRichText(True)
         self.editor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.editor.setPlaceholderText("Enter scenario intro text here...")
+        self.editor.setStyleSheet(
+            "QTextEdit { background-color: #f4ecd8; color: #000000; }"
+        )
         self.editor.currentCharFormatChanged.connect(self._on_format_changed)
         self.editor.cursorPositionChanged.connect(self._on_cursor_changed)
         layout.addWidget(self.editor)

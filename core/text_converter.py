@@ -111,7 +111,7 @@ def html_to_game_text(html_text: str) -> str:
     )
     # Wrap completely bare headings
     result = re.sub(
-        r"<(h[123])>(.+?)</\1>",
+        r"()<(h[123])>(.+?)</\2>",
         _wrap_heading_in_p,
         result,
         flags=re.IGNORECASE | re.DOTALL,
