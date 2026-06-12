@@ -7,7 +7,7 @@ options per column.
 import csv
 from typing import Dict, List, Optional
 
-from constants import HIERARCHY_COLS
+from core.constants import HIERARCHY_COLS
 
 # ── caches ──────────────────────────────────────────────────────────────────
 _rifles_cache: Dict[str, str] = {}       # ID -> Name

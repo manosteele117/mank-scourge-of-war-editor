@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from constants import HIERARCHY_COLS, INT_COLUMNS
+from core.constants import HIERARCHY_COLS, INT_COLUMNS
 
 
 # Columns required in the game's scenario.csv format

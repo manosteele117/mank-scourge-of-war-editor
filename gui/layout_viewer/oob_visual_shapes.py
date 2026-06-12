@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QRect, QPointF
 from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QTextDocument, QTextOption
 import math
 
-from constants import (
+from core.constants import (
     get_border_color, get_side_color,
 )
 

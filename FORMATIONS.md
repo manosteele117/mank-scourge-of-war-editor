@@ -39,7 +39,8 @@ core/
 ├── oob_model.py      # OOBData.build_strength() — builds ActualFormation trees
 └── utilities.py      # plot_rectangles() for visualization
 
-test_formation.py     # Unified test runner for all formation types
+bench/
+└── test_formation.py     # Unified test runner for all formation types
 ```
 
 ### Data Flow: Ingest to Map Position
@@ -78,11 +79,11 @@ All the bad code lives here.
 
 ### Test Files
 
-All tests live in a single file: `test_formation.py`. Run with:
+All tests live in a single file: `bench/test_formation.py`. Run with:
 ```bash
-python test_formation.py                 # all tests
-python test_formation.py --test corps    # single test by name
-python test_formation.py --all --plot    # all tests with plot windows
+python bench/test_formation.py                 # all tests
+python bench/test_formation.py --test corps    # single test by name
+python bench/test_formation.py --all --plot    # all tests with plot windows
 ```
 
 Key formations tested:

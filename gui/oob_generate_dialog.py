@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QWidget, QCheckBox,
 )
 from PySide6.QtCore import Qt
-from constants import LEVEL_NAMES, apply_side_colors_to_item
+from core.constants import LEVEL_NAMES, apply_side_colors_to_item
 
 RESULT_BACK = 0
 RESULT_CONFIRM = 1

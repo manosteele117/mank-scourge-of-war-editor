@@ -13,7 +13,7 @@ from typing import Dict, List, Any, Tuple
 
 import pandas as pd
 
-from constants import HIERARCHY_COLS, INT_COLUMNS
+from core.constants import HIERARCHY_COLS, INT_COLUMNS
 
 
 class TemplateSystem:

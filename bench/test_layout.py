@@ -1,7 +1,7 @@
 ﻿import sys
 from pathlib import Path
 
-sys.path.insert(0, '.')
+sys.path.insert(0, '..')
 from core.formation import populate_formation_archetypes_from_csv, ActualFormation
 from core.oob_model import OOBData
 from core.utilities import plot_rectangles
@@ -100,7 +100,7 @@ def run_single_test(label, fmt, overall_pass):
 
 def compute_strength(archetype_id, head_count):
     """Mirror the head_count -> sprite-count logic from OOBData.build_strength."""
-    from constants import SPRITE_SCALE
+    from core.constants import SPRITE_SCALE
     art_scale = 15 if "Art" in archetype_id else SPRITE_SCALE
     return int(head_count / art_scale)
 

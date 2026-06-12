@@ -24,7 +24,7 @@ from PIL import Image
 from core.utilities import get_tga_dimensions
 from core.formation import ActualFormation, FormationArchetype
 from core.oob_model import OOBData, UnitInfo
-from constants import get_side_color
+from core.constants import get_side_color
 from gui.zoomable_view import ZoomableGraphicsView
 from gui.oob_objective_item import MapObjectiveItem
 from gui.map_unit_item import MapUnitItem

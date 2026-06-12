@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal, QMimeData, QByteArray
 from PySide6.QtGui import QBrush, QColor, QDrag, QFont, QDragEnterEvent, QDragMoveEvent, QDropEvent
 from core.oob_model import OOBData
 from gui.oob_generate_dialog import GenerateSubtreeDialog, GenerateSubtreeConfirmDialog
-from constants import TREE_SIDE_1_BG, TREE_SIDE_2_BG, apply_side_colors_to_item
+from core.constants import TREE_SIDE_1_BG, TREE_SIDE_2_BG, apply_side_colors_to_item
 import pandas as pd
 import traceback
 
@@ -992,7 +992,7 @@ class OOBTreeWidget(QTreeWidget):
         if row_index is None:
             return
 
-        from constants import LEVEL_NAMES
+        from core.constants import LEVEL_NAMES
         level = self.data.get_level(row_index)
 
         # Parent node info (constant throughout the flow)
@@ -1145,7 +1145,7 @@ class OOBTreeWidget(QTreeWidget):
 
         Returns (top_level_nodes, counts_by_level, counts_by_cfg, total_head_count).
         """
-        from constants import HIERARCHY_COLS, LEVEL_NAMES, INT_COLUMNS
+        from core.constants import HIERARCHY_COLS, LEVEL_NAMES, INT_COLUMNS
         synthetic_parent = -1
         counts_by_level: dict[int, int] = {}
         counts_by_cfg: dict[int, int] = {}
@@ -1337,7 +1337,7 @@ class OOBTreeWidget(QTreeWidget):
         is the exact dict that was shown in the preview.
         Offsets l_value past any existing children at the same level.
         """
-        from constants import HIERARCHY_COLS
+        from core.constants import HIERARCHY_COLS
 
         def _max_existing_l_value(parent_idx: int, level: int) -> int:
             """Find the max hierarchy value at *level* among existing children."""

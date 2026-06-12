@@ -1,10 +1,10 @@
 """Unified formation layout test runner.
 
 Usage:
-    python test_formation.py                          # run all tests
-    python test_formation.py --test corps             # run a single test by name
-    python test_formation.py --test corps --plot      # run and show plot window
-    python test_formation.py --all --plot             # run all and show each plot
+    python bench/test_formation.py                          # run all tests
+    python bench/test_formation.py --test corps             # run a single test by name
+    python bench/test_formation.py --test corps --plot      # run and show plot window
+    python bench/test_formation.py --all --plot             # run all and show each plot
 
 Each test builds a formation for a specific OOB row, prints child placements,
 and runs any formation-specific checks (overlap, alignment, etc.).
@@ -13,7 +13,7 @@ import sys
 import argparse
 from pathlib import Path
 
-sys.path.insert(0, '.')
+sys.path.insert(0, '..')
 from core.formation import populate_formation_archetypes_from_csv
 from core.oob_model import OOBData
 from core.utilities import plot_rectangles

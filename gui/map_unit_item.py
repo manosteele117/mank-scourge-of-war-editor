@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QPolygonF, QPainterPathStroker, QFontMetrics,
 )
 
-from constants import (
+from core.constants import (
     get_side_color,
     CMD_CONCENTRIC_GAP, CMD_FACING_ARROW_LEN, CMD_FACING_ARROW_HEAD,
     ART_CANNON_TOTAL_W, ART_CANNON_TOTAL_H,

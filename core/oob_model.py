@@ -3,7 +3,7 @@ import pandas as pd
 from io import StringIO
 from typing import Tuple, List, Optional, Dict, Set, Any, NamedTuple
 
-from constants import (
+from core.constants import (
     COLUMN_ALIASES, HIERARCHY_COLS, LEVEL_NAMES, INT_COLUMNS, REQUIRED_COLUMNS,
     SPRITE_SCALE,
 )
