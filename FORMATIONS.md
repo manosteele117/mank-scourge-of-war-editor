@@ -1,4 +1,4 @@
-# Formations Code Guide
+# Formations Reference For Someone Who Wants to Fix My Code
 
 ### What are we doing
 
@@ -10,7 +10,7 @@ This code translates Scourge of War's formation data from drills.csv into actual
 - Default spacing between rows and columns
 - A layout grid showing where each sub-unit goes
 
-### How It Works (Simplified)
+### How It Works
 
 1. The game reads the OOB to find a unit (ex: Division commander)
 2. It looks up that unit's formation (ex: `DRIL_Lvl4_Inf_Div_DoubleLine_FR`)
@@ -19,11 +19,6 @@ This code translates Scourge of War's formation data from drills.csv into actual
 5. The code fills those seats with the commander's actual children (brigades, batteries, etc.) based on subtype matching
 6. It computes x,y positions using the row and column distances, applying any overrides
 7. The result is a dictionary of `{seq: (x, y, width, height)}` — the bounding box of each placed unit
-
-
-### What Overrides Mean
-
-Each cell can have an override that modifies the default gap. An override of `500` on a cell means "this unit sits 500 yards further back than the default." This is how artillery gets pushed behind infantry, or how a reserve column extends further back.
 
 ---
 
@@ -99,3 +94,9 @@ Key formations tested:
 | brigade | DRIL_Lvl5_Inf_Column | Single-column growth with overrides |
 | brigade_line | DRIL_Lvl5_Inf_Brig_DoubleLine_Fr | Two-row line formation |
 | art_line | DRIL_Lvl5_Art_Line | All units ahead of commander (gx < 0) |
+
+
+### The Stuff Definitely Wrong
+
+- While spacing within a column is mostly dynamic, spacing along a row follows the existing grid. Meaning units in front of a second unit determine the horizontal placement of that second unit, which is not true in-game.
+    - This behavior actually causes base-game formations to overlap relatively often.

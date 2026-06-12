@@ -1,6 +1,6 @@
 # Mank Scourge of War Editor
 
-A scenario and Order of Battle (OOB) editor for **Scourge of War - Remastered**. This desktop GUI tool lets modders and players view and edit military hierarchies, place units on the game's tactical map, and generate complete playable scenarios.
+A scenario and Order of Battle (OOB) editor for **Scourge of War - Remastered**. This desktop GUI tool lets modders and players view and edit OOBs, place units on the game's tactical map, and generate complete playable scenarios.
 
 ## Prerequisites
 
@@ -9,10 +9,7 @@ A scenario and Order of Battle (OOB) editor for **Scourge of War - Remastered**.
 
 ## Installation
 
-1. Clone or download this repository into your game's `Base/OOBs` directory:
-   ```
-   C:\Steam\steamapps\common\Scourge Of War - Remastered\Base\OOBs
-   ```
+1. Clone or download this repository.
 
 2. Install Python dependencies:
    ```
@@ -27,16 +24,11 @@ A scenario and Order of Battle (OOB) editor for **Scourge of War - Remastered**.
 python main.py
 ```
 
-Or load a specific OOB file directly:
-
-```
-python main.py OOB_SB_Waterloo_Campaign Br Cav.csv
-```
 
 ### Configure Game Paths
 
 1. Open the **Files** tab.
-2. Click **Load Game Defaults** to auto-detect paths from your Steam installation.
+2. Click **Load Game Defaults** and point to the .exe for your desired game (GB/WL)
 3. If you are using a mod, set paths to the data files as needed:
    - Map INI file (from `Base\Maps\`)
    - `drills.csv`, `rifles.csv`, `artillery.csv`, `gfx.csv`, `unitglobal.csv`, `gfxpack.csv` (from `Base\Logistics\`)
@@ -44,8 +36,8 @@ python main.py OOB_SB_Waterloo_Campaign Br Cav.csv
 
 ### Load an Order of Battle
 
-1. Go to **File → Open** and select an `OOB_*.csv` file from the `Base\OOBs` folder.
-2. The tree view populates showing the military hierarchy (Side → Army → Corps → Division → Brigade → Regiment).
+1. Go to **File → Open** and select an `OOB_*.csv` file.
+2. The tree view populates showing the hierarchy (Side → Army → Corps → Division → Brigade → Regiment).
 
 ### Edit Units
 
@@ -57,7 +49,7 @@ python main.py OOB_SB_Waterloo_Campaign Br Cav.csv
 ### Place Units on the Map
 
 1. Open the **Map** tab.
-2. Select a unit in the tree, then **click** on the map to place it.
+2. Select a unit in the tree, then **Drag** on the map to place it.
 3. **Drag** placed units to reposition them.
 4. **Right-click** a unit to rotate it.
 5. Use the **Objectives** button to place victory locations.
