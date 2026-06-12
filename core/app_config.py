@@ -90,7 +90,7 @@ class AppConfig:
         for key in path_keys:
             result[key] = parser.get("paths", key, fallback="")
 
-        setting_defaults = {"debug_formation_plot": "true", "debug_logging": "false",
+        setting_defaults = {"debug_formation_plot": "false", "debug_logging": "false",
                             "tile_scale": "512", "units_per_yard": "30",
                             "formation_plot_level": "5",
                             "auto_fill_supply_on_save": "true"}

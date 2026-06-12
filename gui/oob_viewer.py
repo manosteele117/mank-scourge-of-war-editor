@@ -356,7 +356,7 @@ class OOBViewer(QMainWindow):
                 loader(path)
 
         # Settings
-        set_debug_formation_plot(self.config.get_bool("debug_formation_plot", True))
+        set_debug_formation_plot(self.config.get_bool("debug_formation_plot", False))
         debug_log = self.config.get_bool("debug_logging", False)
         logging.getLogger().setLevel(logging.WARNING)
         logging.getLogger("gui").setLevel(logging.DEBUG if debug_log else logging.WARNING)
