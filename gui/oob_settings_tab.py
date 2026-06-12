@@ -61,7 +61,7 @@ class SettingsTab(QWidget):
         self.formation_level_slider.valueChanged.connect(
             lambda val: self.setting_changed.emit("formation_plot_level", str(val)))
         pf_row.addWidget(self.formation_level_slider)
-        self.formation_level_label = QLabel("5+")
+        self.formation_level_label = QLabel("3+")
         self.formation_level_label.setFixedWidth(24)
         pf_row.addWidget(self.formation_level_label)
         self.formation_level_slider.valueChanged.connect(
@@ -145,7 +145,7 @@ class SettingsTab(QWidget):
         if sb is not None:
             sb.setValue(int(upy_val))
 
-        pf_val = config.get("formation_plot_level", "5")
+        pf_val = config.get("formation_plot_level", "3")
         self.formation_level_slider.setValue(int(pf_val))
 
         auto_fill_val = config.get("auto_fill_supply_on_save", "true")
