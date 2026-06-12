@@ -79,9 +79,10 @@ def generate_oob_names_xml(
 
 
 def _sanitize_xml_string(value: str) -> str:
-    """Escape XML special characters."""
+    """Escape XML special characters and strip '#'."""
     return (
-        value.replace("&", "&amp;")
+        value.replace("#", "")
+        .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )

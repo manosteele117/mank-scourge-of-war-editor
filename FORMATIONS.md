@@ -1,12 +1,8 @@
 # Formations Code Guide
 
-## Part 1: For Scourge of War Players
+### What are we doing
 
-### What This Code Does
-
-This code translates Scourge of War's formation data into actual positions on the map — placing each brigade, battery, or squadron in the correct spot relative to its commander. If you've ever looked at a regiment in-game and wondered how the game knows exactly where to put each sub-unit, this is the code that figures it out.
-
-### The Files It Reads
+This code translates Scourge of War's formation data from drills.csv into actual positions on the map for a specific unit — placing each brigade, regiment, and even the individual men in the correct spot relative to their commander. 
 
 **`drills.csv`** — The master formation dictionary. Every formation the game uses (column, line, square, reserve column, etc.) is defined here. Each formation has:
 - A name and unique ID (like `DRIL_Lvl4_Inf_Div_DoubleLine_FR`)
@@ -14,37 +10,16 @@ This code translates Scourge of War's formation data into actual positions on th
 - Default spacing between rows and columns
 - A layout grid showing where each sub-unit goes
 
-**`OOB_SB_test_4corps.csv`** (or any OOB file) — The order of battle. This tells us which commanders have which subordinates, and what formation each unit should use.
-
-**`unitglobal.csv`** — Unit definitions that map CLASS identifiers to formation defaults and sprite types.
-
 ### How It Works (Simplified)
 
-1. The game reads the OOB to find a unit (say, a Division commander)
-2. It looks up that unit's formation (say, `DRIL_Lvl4_Inf_Div_DoubleLine_FR`)
-3. The formation layout is a grid — like a seating chart — showing where each sub-unit sits relative to the commander
-4. Each seat in the grid has a sequence number (seq 1 = commander, seq 2 = standard bearer, seq 3+ = subordinates)
+1. The game reads the OOB to find a unit (ex: Division commander)
+2. It looks up that unit's formation (ex: `DRIL_Lvl4_Inf_Div_DoubleLine_FR`)
+3. The formation layout is a grid — shows where each sub-unit sits relative to the commander
+4. Each seat in the grid has a sequence number (seq 1 = commander(?), seq 2 = standard bearer(?), seq 3+ = subordinates)
 5. The code fills those seats with the commander's actual children (brigades, batteries, etc.) based on subtype matching
 6. It computes x,y positions using the row and column distances, applying any overrides
 7. The result is a dictionary of `{seq: (x, y, width, height)}` — the bounding box of each placed unit
 
-### The Formation Grid
-
-Think of a formation like a theater seating chart:
-
-```
-         Column -1    Column 0    Column 1
-Row -1:   [seq 4]     [seq 2]     [seq 3]
-Row  0:              [seq 1 Cdr]
-Row  1:              [seq 5]      [seq 6]
-```
-
-- **Seq 1** is always the commander (the unit you selected)
-- **Seq 2** is the standard bearer
-- **Seq 3+** are the subordinate units filling seats in order
-- Empty slots (no seq number) are just spacing
-
-The `+` flag on row/column distances means "expand based on unit size" — important for formations like columns where the gap between regiments should grow with the regiment's depth.
 
 ### What Overrides Mean
 
@@ -52,9 +27,7 @@ Each cell can have an override that modifies the default gap. An override of `50
 
 ---
 
-## Part 2: For Developers
-
-### Architecture Overview
+## Part 2: The Code
 
 The formation system has two layers:
 
@@ -106,89 +79,7 @@ Starting from a unit's row in the OOB:
 
 **Step 3: Compute positions** (`ActualFormation.get_positions`)
 
-This is the core algorithm. It works in several passes:
-
-#### 3a. Layout filtering
-
-`get_layout()` filters `full_strength_layout` to only include occupied slots. Seq 1 and 2 are always included; seq 3+ requires a non-None child.
-
-#### 3b. Rebase to origin
-
-All coordinates are rebased so seq 1 (commander) is at (0, 0). This simplifies all downstream math.
-
-#### 3c. Compute per-cell overrides
-
-For each cell in the full layout, compute the override:
-```
-override = cell_row_dist - base_row_dist
-```
-Only non-zero overrides are stored in `per_cell_dist`.
-
-#### 3d. Compute forward offsets (gx > 0)
-
-Units behind the commander. For each column (gy), walk forward from gx=0:
-
-```python
-gap = propagated[(gx, gy)]       # row_dist or override
-if row_dist_plus and no override:
-    gap += (prev_depth + curr_depth) / 2   # edge-to-edge spacing
-col_row_offsets[gy][gx] = col_row_offsets[gy][prev_gx] + gap
-```
-
-Key rules:
-- If the cell has an override, the gap is just the override (top-to-top distance)
-- If `row_dist_plus` is set and there's no override, depth compensation is added to prevent overlap (edge-to-edge spacing)
-- The origin (gx=0) starts at `override_at_origin` for that column — this positions units at gx=0 relative to their column's override
-
-#### 3e. Compute backward offsets (gx < 0)
-
-Units ahead of the commander. Each gx < 0 position is computed directly from the origin:
-
-```python
-gap = base_row_dist - curr_ov
-col_row_offsets[gy][gx] = -gap * abs(gx)
-```
-
-This ensures all units ahead of the commander are at fixed distances from y=0, regardless of overrides elsewhere in the column. This prevents the override at gx=0 from pushing front-row units out of alignment.
-
-#### 3f. Compute column offsets (gy direction)
-
-Lateral spacing between columns. Uses edge-to-edge formula:
-```python
-col_offsets[gy] = col_offsets[prev_gy] + (max_length_prev + max_length_curr) / 2 + base_col_dist
-```
-
-#### 3g. Assemble final positions
-
-For each seq in the layout:
-- Seq 1: placed at (-length/2, 0) — centered on origin
-- Others: `x = col_offsets[gy] - length/2`, `y = col_row_offsets[gy][gx]`
-
-#### 3h. Standard bearer shift
-
-Seq 2's y-position is forced to 0 by shifting all positions. This ensures the standard bearer (who defines the formation's "front") is always at the origin line.
-
-### Tricky Parts
-
-**1. The override at gx=0 defines the gap from gx=-1 to gx=0, not an absolute position.**
-
-This is stored in `col_row_offsets[gy][0]` and used as the starting point for the forward loop. The backward loop ignores it entirely (computes from y=0). This separation is critical — without it, front-row units get displaced by rear-row overrides.
-
-**2. The `row_dist_plus` depth compensation is conditional.**
-
-It only applies when there's no override at the cell. Overrides define top-to-top distances and replace the default gap entirely. Depth compensation only kicks in for the default gap to prevent overlapping when units have different depths.
-
-**3. The `propagated` dict handles row-level override inheritance.**
-
-If one cell in a row has an override, other cells in the same row (same gx, different gy) inherit it via `row_ov`. This ensures all units in the same row maintain consistent spacing.
-
-**4. The backward loop uses absolute positioning.**
-
-`col_row_offsets[gy][gx] = -gap * abs(gx)` — this is cumulative multiplication, not step-by-step. Since all units ahead of the commander share the same base_row_dist, the distance grows linearly with gx. This avoids chaining errors that would compound through intermediate rows.
-
-**5. Subtype matching has two phases.**
-
-First pass fills slots in order: wildcard (None) slots take the first available child, typed slots take the first matching child. Second pass fills any remaining unmatched slots. This ensures explicit subtype slots get priority while wildcards don't block typed matches.
+All the bad code lives here.
 
 ### Test Files
 

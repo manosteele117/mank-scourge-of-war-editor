@@ -1,12 +1,12 @@
 Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
 , Regimental Infantry
-Union Regiment Default,OOB_MNK_U_INF6_,{rangeord:1-60} {pool:states_union},,,,,,,X,UGLB_USA_Inf_7,(1-0),IDS_ARSN_Model_1861_Springfield_USA,60,GFX_US_National_Regt,GFX_US_MI_Regt,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Union Regiment Default,OOB_MNK_U_INF6_,{rangeord:1-60} {pool:states_union},,,,,,,X,UGLB_USA_Inf_7,(1-0),IDS_ARSN_Model_1861_Springfield_USA,60,GFX_US_National_Regt,GFX_US_MI_Regt,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Cavalry Squadrons
-Union Cav Squadron Default,OOB_MNK_U_CAV6_,{rangeord:1-15} {pool:states_union} Cavalry,,,,,,,X,UGLB_USA_Cav_1,(1-0),IDS_ARSN_Model_1859_Sharps_USA,60,GFX_US_National_Cav,GFX_US_Illinois_Cav,DRIL_Lvl6_Cav_Column,470,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Union Cav Squadron Default,OOB_MNK_U_CAV6_,{rangeord:1-15} {pool:states_union} Cavalry,,,,,,,X,UGLB_USA_Cav_1,(1-0),IDS_ARSN_Model_1859_Sharps_USA,60,GFX_US_National_Cav,GFX_US_Illinois_Cav,DRIL_Lvl6_Cav_Column,470,,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Artillery Pieces
-Union Artillery Default,OOB_MNK_U_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section / 12lb Napoleon,,,,,,,X,UGLB_USA_Art_Limbered_3,(1-0),IDS_ARSN_12lb_Napoleon_USA,8,GFX_US_Artillery,,DRIL_Lvl6_Art_Line,15,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Union Artillery Default,OOB_MNK_U_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section / 12lb Napoleon,,,,,,,X,UGLB_USA_Art_Limbered_3,(1-0),IDS_ARSN_12lb_Napoleon_USA,8,GFX_US_Artillery,,DRIL_Lvl6_Art_Line,15,,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Brigade Commanders
 Union Infantry Brigade Commander,OOB_MNK_U_INF5_,Brigadier General {pool:commanders_american},Brigade {seq:u_brigade},,,,,X,,UGLB_USA_Inf_Cdr_Brig,(4-3),,,GFX_US_5C1D1B,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,

@@ -94,15 +94,17 @@ def html_to_game_text(html_text: str) -> str:
     result = re.sub(r"<(h[123])\s+[^>]*>", _clean_heading, result, flags=re.IGNORECASE)
 
     # Wrap headings in <p> for game format compatibility
-    # Any alignment is handled by the editor's align combo, not forced here
     def _wrap_heading_in_p(m):
-        tag = m.group(1)
-        inner = m.group(2)
-        return "<p><%s>%s</%s></p>" % (tag, inner, tag)
+        p_open = m.group(1)
+        tag = m.group(2)
+        inner = m.group(3)
+        align_match = re.search(r"""align=["']([^"']*)["']""", p_open)
+        align_attr = ' align="%s"' % align_match.group(1) if align_match else ""
+        return "<p%s><%s>%s</%s></p>" % (align_attr, tag, inner, tag)
 
     # Match headings inside existing <p> tags (strip the old <p>, rewrap)
     result = re.sub(
-        r"<p(?:\s[^>]*)?>\s*<(h[123])>(.*?)</\1>\s*</p>",
+        r"<p((?:\s[^>]*)?)>\s*<(h[123])>(.*?)</\2>\s*</p>",
         _wrap_heading_in_p,
         result,
         flags=re.IGNORECASE | re.DOTALL,

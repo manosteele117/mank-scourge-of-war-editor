@@ -1,12 +1,12 @@
 Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
 , Regimental Infantry
-Confederate Regiment Default,OOB_MNK_C_INF6_,{rangeord:1-60} {pool:states_confederate},,,,,,,X,UGLB_CSA_Inf_2,(1-0),IDS_ARSN_1854_Lorenz_Austria,60,GFX_CS_Arkansas3rd,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Confederate Regiment Default,OOB_MNK_C_INF6_,{rangeord:1-60} {pool:states_confederate},,,,,,,X,UGLB_CSA_Inf_2,(1-0),IDS_ARSN_1854_Lorenz_Austria,60,GFX_CS_Arkansas3rd,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Cavalry Squadrons
-Confederate Cav Squadron Default,OOB_MNK_C_CAV6_,{rangeord:1-20} {pool:states_confederate} Cavalry,,,,,,,X,UGLB_CSA_Cav_1,(1-0),IDS_ARSN_Model_1859_Sharps_USA,60,GFX_CS_Cav_6thVirginia,,DRIL_Lvl6_Cav_Column,265,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Confederate Cav Squadron Default,OOB_MNK_C_CAV6_,{rangeord:1-20} {pool:states_confederate} Cavalry,,,,,,,X,UGLB_CSA_Cav_1,(1-0),IDS_ARSN_Model_1859_Sharps_USA,60,GFX_CS_Cav_6thVirginia,,DRIL_Lvl6_Cav_Column,265,,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Artillery Pieces
-Confederate Artillery Default,OOB_MNK_C_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section / 12lb Napoleon,,,,,,,X,UGLB_CSA_Art_Limbered_1,(1-0),IDS_ARSN_12lb_Napoleon_CSA,8,GFX_CS_ArtilleryVa,,DRIL_Lvl6_Art_Line,15,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Confederate Artillery Default,OOB_MNK_C_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section / 12lb Napoleon,,,,,,,X,UGLB_CSA_Art_Limbered_1,(1-0),IDS_ARSN_12lb_Napoleon_CSA,8,GFX_CS_ArtilleryVa,,DRIL_Lvl6_Art_Line,15,,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Brigade Commanders
 Confederate Infantry Brigade Commander,OOB_MNK_C_INF5_,Brigadier General {pool:commanders_american},Brigade {seq:c_brigade},,,,,X,,UGLB_CSA_Inf_Cdr_Brig,(0-1),,,GFX_CS_GeorgiaState,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,

@@ -201,6 +201,10 @@ class OOBViewer(QMainWindow):
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.setSpacing(8)
 
+        self.new_button = QPushButton("New OOB")
+        self.new_button.clicked.connect(self.new_oob)
+        controls_layout.addWidget(self.new_button)
+
         self.save_button = QPushButton("Save OOB")
         self.save_button.clicked.connect(self.save_csv_dialog)
         self.save_button.setEnabled(False)
@@ -216,6 +220,10 @@ class OOBViewer(QMainWindow):
         self.validate_button.setEnabled(False)
         self._set_validation_state("unknown")
         controls_layout.addWidget(self.validate_button)
+
+        self.filename_label = QLabel("")
+        self.filename_label.setStyleSheet("color: #888; padding-left: 8px;")
+        controls_layout.addWidget(self.filename_label)
 
         controls_layout.addStretch()
 
@@ -397,6 +405,7 @@ class OOBViewer(QMainWindow):
             self.validate_button.setEnabled(True)
             self.shared_toolbar.setDisabled(False)
             self.files_tab.set_entry_path("oob", path)
+            self.filename_label.setText(os.path.basename(path))
         except Exception as e:
             QMessageBox.critical(self, "Load Error",
                                  f"Failed to load OOB file:\n{path}\n\n"
@@ -414,6 +423,19 @@ class OOBViewer(QMainWindow):
                                  f"Failed to save CSV to:\n{path}\n\n"
                                  f"Error: {type(e).__name__}: {str(e)}\n\n"
                                  f"Stack trace:\n{traceback.format_exc()}")
+
+    def new_oob(self):
+        reply = QMessageBox.question(
+            self, "New OOB",
+            "This will discard any unsaved changes and load a blank template.\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            template_path = os.path.normpath(
+                os.path.join(os.path.dirname(__file__), "..", "templates", "headers", "oob_headers.csv")
+            )
+            self.load_csv(template_path)
 
     def save_csv_dialog(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save OOB CSV", "", "CSV Files (*.csv)")

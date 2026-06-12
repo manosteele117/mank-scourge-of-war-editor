@@ -270,17 +270,17 @@ class RichTextEditor(QWidget):
         lines.append("<p></p>")
 
         # Scenario info
-        lines.append(f"<p><h2><color value='#631B5E'>Map:</color> <color value='#ffffff'>{map_name}</h2></p>")
-        lines.append(f"<p><h2><color value='#631B5E'>Type:</color> <color value='#ffffff'>{type_val}</h2></p>")
-        lines.append(f"<p><h2><color value='#631B5E'>Start Time:</color> <color value='#ffffff'>{start_time}</h2></p>")
+        lines.append(f"<p><h2><color value='#631B5E'>Map:</color> <color value='#000000'>{map_name}</h2></p>")
+        lines.append(f"<p><h2><color value='#631B5E'>Type:</color> <color value='#000000'>{type_val}</h2></p>")
+        lines.append(f"<p><h2><color value='#631B5E'>Start Time:</color> <color value='#000000'>{start_time}</h2></p>")
         lines.append("<p></p>")
 
         # Situation placeholder
-        lines.append("<p><h2><color value='#631B5E'>Situation:</color> <color value='#ffffff'>Insert situation text here</color></h2></p>")
+        lines.append("<p><h2><color value='#631B5E'>Situation:</color> <color value='#000000'>Insert situation text here</color></h2></p>")
         lines.append("<p></p>")
 
         # Gameplay placeholder
-        lines.append("<p><h2><color value='#631B5E'>Gameplay:</color> <color value='#ffffff'>Insert gameplay details here</color></h2></p>")
+        lines.append("<p><h2><color value='#631B5E'>Gameplay:</color> <color value='#000000'>Insert gameplay details here</color></h2></p>")
         lines.append("<p></p>")
 
         # Forces by side

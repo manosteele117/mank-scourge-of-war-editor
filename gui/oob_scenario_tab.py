@@ -168,6 +168,7 @@ class ScenarioTab(QWidget):
         type_row.addWidget(QLabel("Type:"))
         self.type_combo = QComboBox()
         self.type_combo.addItems(["MP", "SP", "BP"])
+        self.type_combo.setCurrentText("BP")
         self.type_combo.setFixedWidth(80)
         type_row.addWidget(self.type_combo)
         type_row.addStretch(1)

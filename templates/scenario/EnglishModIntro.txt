@@ -1,4 +1,4 @@
-<p><color value='#000000'><h3>Mank Scourge of War Editor Scenario Output</p></h3>
+<p><h3>Mank Scourge of War Editor Scenario Output</p></h3>
  
 
  

@@ -228,7 +228,7 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
         from core.oob_names import parse_existing_ids, generate_oob_names_xml
         try:
             existing_ids = parse_existing_ids(oob_names_path)
-            placed_indices = {pu["row_index"] for pu in placed_units}
+            placed_indices = {pu["row_index"] for pu in placed_units} | auto_fill_indices
             media_dir = os.path.join(scenario_dir, "Layout", "Media", "Language")
             os.makedirs(media_dir, exist_ok=True)
             generate_oob_names_xml(

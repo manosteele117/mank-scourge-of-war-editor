@@ -1,12 +1,12 @@
 Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
 , Regimental Infantry
-French Battalion Default,OOB_MNK_FR_INF6_,{cycle:1|1|1|2|2|2|3|3|3}e Regiment / {cycle:1er|2e|3e} Bataillon,,,,,,,X,UGLB_FR_Inf_1,(1-0),IDS_ARSN_1777_Charleville_France,40,GFX_French1,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+French Battalion Default,OOB_MNK_FR_INF6_,{cycle:1|1|1|2|2|2|3|3|3}e Regiment / {cycle:1er|2e|3e} Bataillon,,,,,,,X,UGLB_FR_Inf_1,(1-0),IDS_ARSN_1777_Charleville_France,40,GFX_French1,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Cavalry Squadrons
-French Cav Squadron Default,OOB_MNK_FR_Cav6_,{seq:fr_cav} Escadron,,,,,,,X,UGLB_FR_Cav_2,(1-0),IDS_ARSN_Swords_and_Pistols,40,GFX_Cav_French_Chasseurs,,DRIL_Lvl6_Cav_Column,{range:100-200},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+French Cav Squadron Default,OOB_MNK_FR_Cav6_,{seq:fr_cav} Escadron,,,,,,,X,UGLB_FR_Cav_2,(1-0),IDS_ARSN_Swords_and_Pistols,40,GFX_Cav_French_Chasseurs,,DRIL_Lvl6_Cav_Column,{range:100-200},,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Artillery Pieces
-French Artillery Default,OOB_MNK_FR_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section,,,,,,,X,UGLB_FR_Art_Limbered_2_FA,(10-7),IDS_ARSN_6lb_Cannon_FR,4,GFX_Art_French,,DRIL_Lvl6_Art_March,30,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+French Artillery Default,OOB_MNK_FR_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section,,,,,,,X,UGLB_FR_Art_Limbered_2_FA,(10-7),IDS_ARSN_6lb_Cannon_FR,4,GFX_Art_French,,DRIL_Lvl6_Art_March,30,,,,,,{range:5-9},9,9,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Brigade Commanders
 French Infantry Brigade Commander,OOB_MNK_FR_INF5_,Maréchal de Camp {pool:commanders_french},Brigade {seq:fr_brigade},,,,,X,,UGLB_FR_Inf_Cdr_Brig,(0-8),,,GFX_CO_France,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,

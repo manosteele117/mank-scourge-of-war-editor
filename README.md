@@ -37,7 +37,7 @@ python main.py OOB_SB_Waterloo_Campaign Br Cav.csv
 
 1. Open the **Files** tab.
 2. Click **Load Game Defaults** to auto-detect paths from your Steam installation.
-3. If auto-detection fails, manually set paths to the game's data files:
+3. If you are using a mod, set paths to the data files as needed:
    - Map INI file (from `Base\Maps\`)
    - `drills.csv`, `rifles.csv`, `artillery.csv`, `gfx.csv`, `unitglobal.csv`, `gfxpack.csv` (from `Base\Logistics\`)
    - `OOBNames.xml` (from `Base\Layout\Media\Language\`)
@@ -68,8 +68,8 @@ python main.py OOB_SB_Waterloo_Campaign Br Cav.csv
 2. Set the **scenario name** and **start time**.
 3. Arrange objectives and set victory conditions.
 4. Write an intro briefing using the **rich text editor**.
-5. Click **Save Scenario** to generate a complete scenario directory under `Output/`.
-6. Copy the generated folder into the game's `Scenarios/` directory to play it.
+5. Click **Save Scenario** to generate a complete mod directory under `Output/`.
+6. Copy the generated folder into the game's `Mods/` directory to play it.
 
 ---
 
@@ -184,6 +184,5 @@ OOBs/
 
 ## Notes
 
-- All file paths are persisted in `config/app_config.ini` — you only need to configure them once.
+- All file paths are persisted in `config/app_config.ini` — they will be restored on startup
 - Template pool files (`templates/pools/*.txt`) are loaded at startup. Click **Load Templates** in the Files tab to reload after adding new pools.
-- The editor uses a dark theme by default.

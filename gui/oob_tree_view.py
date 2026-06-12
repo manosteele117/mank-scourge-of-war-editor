@@ -1013,6 +1013,7 @@ class OOBTreeWidget(QTreeWidget):
         }
 
         config = None
+        attachments = None
 
         while True:
             # Phase 1: Settings dialog (only on first entry or after Back)
@@ -1021,10 +1022,11 @@ class OOBTreeWidget(QTreeWidget):
                 if dialog.exec() != QDialog.Accepted:
                     return
                 config = dialog.get_config()
+                attachments = dialog.get_attachments()
 
             # Phase 2: Build preview with resolved modifiers
             try:
-                preview_nodes, counts_by_level, counts_by_cfg, total_head = self._build_preview_tree(config)
+                preview_nodes, counts_by_level, counts_by_cfg, total_head = self._build_preview_tree(config, attachments)
             except Exception as e:
                 QMessageBox.critical(self, "Preview Error",
                                      f"Failed to build preview:\n\n"
@@ -1063,6 +1065,11 @@ class OOBTreeWidget(QTreeWidget):
                     settings_lines.append(f"  {label}: {cfg['min']} x {tname}")
                 else:
                     settings_lines.append(f"  {label}: {cfg['min']}-{cfg['max']} x {tname}")
+            _ATTACH_LABELS = {2: "Courier", 4: "Supply Wagon"}
+            for att in attachments:
+                tname = att["template"]["name"] if att["template"] else "(none)"
+                alabel = _ATTACH_LABELS.get(att["parent_level"], "Attachment")
+                settings_lines.append(f"  {alabel}: 1 x {tname}")
             settings_text = "\n".join(settings_lines)
 
             # Build unit count summary
@@ -1084,6 +1091,12 @@ class OOBTreeWidget(QTreeWidget):
                 cfg_count = counts_by_cfg.get(cfg_idx, 0)
                 if cfg_count > 0:
                     count_parts.append(_count_label(cfg_count, cfg))
+            _ATTACH_FULL = {2: "Couriers", 4: "Supply Wagons"}
+            for att in attachments:
+                parent_lvl = att["parent_level"]
+                parent_count = counts_by_level.get(parent_lvl, 0)
+                if parent_count > 0:
+                    count_parts.append(f"{parent_count} {_ATTACH_FULL.get(parent_lvl, 'Attachments')}")
             summary_text = f"Created {', '.join(count_parts)}. Total of {total_head:,} men."
 
             # Phase 3: Confirmation dialog with preview tree
@@ -1116,13 +1129,15 @@ class OOBTreeWidget(QTreeWidget):
             elif result == RESULT_BACK:
                 # Return to settings dialog
                 config = None
+                attachments = None
                 continue
 
             else:
                 # Dialog was closed (X button) — exit
                 return
 
-    def _build_preview_tree(self, config: list[dict]) -> tuple:
+    def _build_preview_tree(self, config: list[dict],
+                            attachments: list[dict] | None = None) -> tuple:
         """Build preview nodes with resolved modifiers using synthetic parent indices.
 
         Each node stores its fully resolved row_dict so that the exact same
@@ -1240,6 +1255,57 @@ class OOBTreeWidget(QTreeWidget):
             return nodes, level_head
 
         top_nodes, total_head = build_level(synthetic_parent, 0)
+
+        # Attach courier / supply-wagon children
+        if attachments:
+            def _attach(nodes: list[dict]) -> None:
+                nonlocal total_head, counts_by_level
+                for node in nodes:
+                    _attach(node.get("children", []))
+                    for att in attachments:
+                        if node["level"] != att["parent_level"]:
+                            continue
+                        tmpl = att["template"]
+                        if tmpl is None:
+                            continue
+                        columns = list(self.data.df.columns) if self.data.df is not None else []
+                        row_dict = {col: tmpl["row"].get(col, "") for col in columns}
+                        source_level = tmpl["level"]
+                        for i, hcol in enumerate(HIERARCHY_COLS):
+                            row_dict[hcol] = 1 if i == source_level - 1 else 0
+                        self.data._resolve_modifiers(row_dict, -1)
+                        for col in INT_COLUMNS:
+                            if col in row_dict:
+                                val = str(row_dict[col]).strip()
+                                if val:
+                                    try:
+                                        row_dict[col] = int(float(val))
+                                    except (ValueError, TypeError):
+                                        pass
+                        name = str(row_dict.get("NAME1", "") or row_dict.get("Name", "") or "?")
+                        hc = row_dict.get("Head Count", 0)
+                        exp = row_dict.get("Experience", 0)
+                        side_raw = row_dict.get("SIDE 1", 0)
+                        try:
+                            side = int(side_raw)
+                        except (ValueError, TypeError):
+                            side = 0
+                        att_node = {
+                            "name": name,
+                            "level": source_level,
+                            "branch": None,
+                            "level_info": f"{LEVEL_NAMES[source_level - 1] if source_level <= len(LEVEL_NAMES) else f'Lvl {source_level}'} (1)",
+                            "head_count": hc,
+                            "experience": exp,
+                            "side": side,
+                            "resolved_row": row_dict,
+                            "children": [],
+                        }
+                        node["children"].append(att_node)
+                        counts_by_level[source_level] = counts_by_level.get(source_level, 0) + 1
+                        total_head += int(float(str(hc))) if str(hc).strip() else 0
+            _attach(top_nodes)
+
         self._compute_preview_aggregates(top_nodes)
         return top_nodes, counts_by_level, counts_by_cfg, total_head
 

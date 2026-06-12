@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QComboBox,
     QPushButton, QFrame, QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QGridLayout, QWidget,
+    QGridLayout, QWidget, QCheckBox,
 )
 from PySide6.QtCore import Qt
 from constants import LEVEL_NAMES, apply_side_colors_to_item
@@ -212,6 +212,44 @@ class _BranchLevelRow(QFrame):
         return [col.get_config() for col in self._columns]
 
 
+class _AttachmentRow(QFrame):
+    """Checkbox + template dropdown for a Courier/Wagon attachment."""
+
+    def __init__(self, label: str, templates: list[dict],
+                 class_filter: str, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.NoFrame)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.checkbox = QCheckBox(label)
+        self.checkbox.setChecked(True)
+        layout.addWidget(self.checkbox)
+
+        self.template_combo = QComboBox()
+        self.template_combo.setEditable(False)
+        filtered = [
+            t for t in templates
+            if class_filter.lower() in t.get("row", {}).get("CLASS", "").lower()
+        ]
+        for t in sorted(filtered, key=lambda x: x["name"]):
+            self.template_combo.addItem(t["name"], t)
+        if not filtered:
+            self.template_combo.addItem("(no templates)", None)
+            self.checkbox.setChecked(False)
+            self.checkbox.setEnabled(False)
+            self.template_combo.setEnabled(False)
+        layout.addWidget(self.template_combo, 1)
+
+        self.checkbox.toggled.connect(self.template_combo.setEnabled)
+
+    def get_attachment_config(self) -> dict | None:
+        if not self.checkbox.isChecked():
+            return None
+        return {"template": self.template_combo.currentData()}
+
+
 class GenerateSubtreeDialog(QDialog):
     """Dialog for generating a subtree of units under the selected unit."""
 
@@ -232,6 +270,8 @@ class GenerateSubtreeDialog(QDialog):
 
         # Build one row per constructible level
         self._rows: list[_LevelRow | _BranchLevelRow] = []
+        self._courier_row: _AttachmentRow | None = None
+        self._wagon_row: _AttachmentRow | None = None
         for lvl in range(selected_level + 1, 7):
             if lvl >= 5:
                 row = _BranchLevelRow(lvl, templates)
@@ -239,6 +279,12 @@ class GenerateSubtreeDialog(QDialog):
                 row = _LevelRow(lvl, templates)
             self._rows.append(row)
             layout.addWidget(row)
+            if lvl == 2:
+                self._courier_row = _AttachmentRow("Courier?", templates, "Courier")
+                layout.addWidget(self._courier_row)
+            elif lvl == 4:
+                self._wagon_row = _AttachmentRow("Supply Wagon?", templates, "Wagon")
+                layout.addWidget(self._wagon_row)
 
         if not self._rows:
             layout.addWidget(QLabel("No levels to generate below this unit."))
@@ -261,6 +307,18 @@ class GenerateSubtreeDialog(QDialog):
         for row in self._rows:
             config.extend(row.get_config())
         return config
+
+    def get_attachments(self) -> list[dict]:
+        attachments = []
+        if self._courier_row is not None:
+            cfg = self._courier_row.get_attachment_config()
+            if cfg is not None:
+                attachments.append({"parent_level": 2, **cfg})
+        if self._wagon_row is not None:
+            cfg = self._wagon_row.get_attachment_config()
+            if cfg is not None:
+                attachments.append({"parent_level": 4, **cfg})
+        return attachments
 
 
 class GenerateSubtreeConfirmDialog(QDialog):
