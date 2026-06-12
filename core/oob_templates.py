@@ -48,7 +48,7 @@ class TemplateSystem:
                 continue
             fpath = os.path.join(templates_dir, fname)
             try:
-                tdf = pd.read_csv(fpath, encoding="cp1252", dtype=str)
+                tdf = pd.read_csv(fpath, encoding="utf-8", dtype=str)
                 self.data._original_headers = {}
                 tdf = self.data._normalize_columns(tdf)
             except Exception:

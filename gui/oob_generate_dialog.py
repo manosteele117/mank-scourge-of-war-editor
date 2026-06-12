@@ -13,8 +13,8 @@ RESULT_REGENERATE = 2
 BRANCHES = [("INF", "Infantry"), ("CAV", "Cavalry"), ("ART", "Artillery")]
 
 _BRANCH_UNIT_NAMES = {
-    5: {"INF": "Brigades", "CAV": "Brigades", "ART": "Batteries"},
-    6: {"INF": "Regiments", "CAV": "Squadrons", "ART": "Guns"},
+    5: {"INF": "Brigade", "CAV": "Brigade", "ART": "Battery"},
+    6: {"INF": "Regiment", "CAV": "Squadron", "ART": "Gun"},
 }
 
 _BRANCH_CLASS_KEY = {"INF": "1", "CAV": "2", "ART": "3"}
@@ -32,7 +32,7 @@ class _LevelRow(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
 
         name = LEVEL_NAMES[level - 1] if level <= len(LEVEL_NAMES) else f"Level {level}"
-        label = QLabel(f"Lvl {level} {name}s:")
+        label = QLabel(f"Lvl {level} {name}:")
         label.setFixedWidth(140)
         layout.addWidget(label)
 

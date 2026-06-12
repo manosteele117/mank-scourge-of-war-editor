@@ -91,8 +91,9 @@ class AppConfig:
             result[key] = parser.get("paths", key, fallback="")
 
         setting_defaults = {"debug_formation_plot": "true", "debug_logging": "false",
-                           "tile_scale": "512", "units_per_yard": "30",
-                           "formation_plot_level": "5"}
+                            "tile_scale": "512", "units_per_yard": "30",
+                            "formation_plot_level": "5",
+                            "auto_fill_supply_on_save": "true"}
         for key, default in setting_defaults.items():
             result[key] = parser.get("settings", key, fallback=default)
 

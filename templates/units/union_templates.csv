@@ -1,12 +1,20 @@
 Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
 , Regimental Infantry
-Union Regiment Default,OOB_MNK_U_INF_REG_,{rangeord:1-60} {pool:states_union},,,,,,,X,UGLB_USA_Inf_7,(1-0),IDS_ARSN_Model_1861_Springfield_USA,60,GFX_US_National_Regt,GFX_US_MI_Regt,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Union Regiment Default,OOB_MNK_U_INF6_,{rangeord:1-60} {pool:states_union},,,,,,,X,UGLB_USA_Inf_7,(1-0),IDS_ARSN_Model_1861_Springfield_USA,60,GFX_US_National_Regt,GFX_US_MI_Regt,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+
+, Cavalry Squadrons
+Union Cav Squadron Default,OOB_MNK_U_CAV6_,{rangeord:1-15} {pool:states_union} Cavalry,,,,,,,X,UGLB_USA_Cav_1,(1-0),IDS_ARSN_Model_1859_Sharps_USA,60,GFX_US_National_Cav,GFX_US_Illinois_Cav,DRIL_Lvl6_Cav_Column,470,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+
+, Artillery Pieces
+Union Artillery Default,OOB_MNK_U_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section / 12lb Napoleon,,,,,,,X,UGLB_USA_Art_Limbered_3,(1-0),IDS_ARSN_12lb_Napoleon_USA,8,GFX_US_Artillery,,DRIL_Lvl6_Art_Line,15,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Brigade Commanders
-Union Infantry Brigade Commander,OOB_MNK_U_BGD_CMD_,Brigadier General {pool:commanders_american},Brigade {seq:u_brigade},,,,,X,,UGLB_USA_Inf_Cdr_Brig,(4-3),,,GFX_US_5C1D1B,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+Union Infantry Brigade Commander,OOB_MNK_U_INF5_,Brigadier General {pool:commanders_american},Brigade {seq:u_brigade},,,,,X,,UGLB_USA_Inf_Cdr_Brig,(4-3),,,GFX_US_5C1D1B,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+Union Cavalry Brigade Commander,OOB_MNK_U_CAV5_,Col {pool:commanders_american},First Brigade,,,,,X,,UGLB_USA_Cav_Cdr_Brig,(2-6),,0,GFX_US_Cav_1C1D1B,,DRIL_Lvl5_Cav_Column,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+Union Artillery Battery Commander,OOB_MNK_U_ART5_,Capt {pool:commanders_american},Battery {pick:A|B|C|D} {rangeord:1-9} {pool:states_union} Artillery,,,,,X,,UGLB_USA_Art_Cdr_Bty,(10-7),,0,GFX_US_1C_Art,GFX_US_PA,DRIL_Lvl5_Art_Line,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
 
 , Divisional Commanders
-Union Infantry Division Commander,OOB_MNK_U_DIV_CMD_,Brigadier General {pool:commanders_american},{seq:u_div} Division,,,,X,,,UGLB_USA_Inf_Cdr_Div,(2-1),,,GFX_US_5C1D,,DRIL_Lvl4_Inf_LinewithReserves,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+Union Division Commander,OOB_MNK_U_DIV_CMD_,Brigadier General {pool:commanders_american},{seq:u_div} Division,,,,X,,,UGLB_USA_Inf_Cdr_Div,(2-1),,,GFX_US_5C1D,,DRIL_Lvl4_Inf_LinewithReserves,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
 
 , Corps Commanders
 Union Corps Commander,OOB_MNK_U_COR_CMD_,Major General {pool:commanders_american},{seq:u_corps} Corps,,,X,,,,UGLB_USA_Inf_Cdr_Corps,(8-0),,,GFX_US_5C_HQ,,DRIL_Lvl4_Inf_LinewithReserves,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,

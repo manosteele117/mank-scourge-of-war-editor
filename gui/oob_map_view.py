@@ -1125,6 +1125,7 @@ class OOBMapWidget(QWidget):
             if DEBUG_FORMATION_PLOT:
                 from core.utilities import plot_rectangles
                 level = self.oob_data.get_level(parent_row_index)
+                print(level)
                 if level <= self._formation_plot_level:
                     plot_rectangles(
                         positions,

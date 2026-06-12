@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QFileDialog, QLabel, QPushButton, QSplitter, QMessageBox, QTabWidget,
     QFrame, QDialog, QDialogButtonBox, QScrollArea,
 )
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QPalette, QIcon
 from PySide6.QtCore import Qt
 
 from core.app_config import AppConfig
@@ -450,6 +450,7 @@ class OOBViewer(QMainWindow):
         oob_names_path = self.config.get_path("oobnames") or None
 
         try:
+            auto_fill_supply = self.config.get_bool("auto_fill_supply_on_save", True)
             self.data.save_scenario(
                 scenario_dir, map_name, oob_filename,
                 self.map_viewer.get_placed_units_data(),
@@ -460,6 +461,7 @@ class OOBViewer(QMainWindow):
                 oob_names_path=oob_names_path,
                 scenario_name=scenario_name,
                 inner_scenario_name=inner_name,
+                auto_fill_supply=auto_fill_supply,
             )
             QMessageBox.information(self, "Save Successful",
                                     f"Scenario file saved to:\n{scenario_dir}")
@@ -640,6 +642,8 @@ class OOBViewer(QMainWindow):
             self.map_viewer.set_tile_scale(int(value))
         elif key == "units_per_yard":
             self.map_viewer.set_units_per_yard(int(value))
+        elif key == "formation_plot_level":
+            self.map_viewer.set_formation_plot_level(int(value))
         self.config.set("settings", key, value)
 
     # ── Templates ───────────────────────────────────────────────────
@@ -727,6 +731,11 @@ class OOBViewer(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     apply_dark_theme(app)
+
+    icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                             "icons", "mank_big_logo_noflag.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     csv_path = sys.argv[1] if len(sys.argv) > 1 else None
 

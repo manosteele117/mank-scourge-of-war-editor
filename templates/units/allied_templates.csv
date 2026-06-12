@@ -1,19 +1,21 @@
 Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
 , Regimental Infantry
-British Battalion Default,OOB_MNK_BR_INF_REG_,{seqord:1-99} Regiment,,,,,,,X,UGLB_BR_Inf_1,(1-0),IDS_ARSN_India_Pattern_British,40,GFX_British_1815,GFX_Brit_KC_Btn3_14th,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
-Prussian Battalion Default,OOB_MNK_PR_INF_REG_,{seq:pr_bat}. Bataillon,,,,,,,X,UGLB_PR_Inf_2,(1-0),IDS_ARSN_1782_Pattern_Prussia,40,GFX_PR_Landwehr,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+British Battalion Default,OOB_MNK_BR_INF6_,{seqord:1-99} Regiment,,,,,,,X,UGLB_BR_Inf_1,(1-0),IDS_ARSN_India_Pattern_British,40,GFX_British_1815,GFX_Brit_KC_Btn3_14th,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+Prussian Battalion Default,OOB_MNK_PR_INF6_,{seq:pr_bat}. Bataillon,,,,,,,X,UGLB_PR_Inf_2,(1-0),IDS_ARSN_1782_Pattern_Prussia,40,GFX_PR_Landwehr,,DRIL_Lvl6_Inf_Column,{range:350-550},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Cavalry Squadrons
-British Cav Squadron Default,OOB_MNK_BR_Cav_SQD_,{seqord:br_cav} Squadron,,,,,,,X,UGLB_BR_Cav_5,(1-0),IDS_ARSN_Swords_and_Pistols,40,GFX_Cav_British,,DRIL_Lvl6_Cav_Column,{range:100-200},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+British Cav Squadron Default,OOB_MNK_BR_CAV6_,{seqord:br_cav} Squadron,,,,,,,X,UGLB_BR_Cav_5,(1-0),IDS_ARSN_Swords_and_Pistols,40,GFX_Cav_British,,DRIL_Lvl6_Cav_Column,{range:100-200},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Artillery Pieces
-British Artillery Default,OOB_MNK_BR_ART_BAT_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section,,,,,,,X,UGLB_BR_Art_Limbered_1,(10-7),IDS_ARSN_9lb_Cannon_Br,4,GFX_Art_British,,DRIL_Lvl6_Art_March,30,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
+British Artillery Default,OOB_MNK_BR_ART6_,#{seq:art_bat} Gun / {cycle:Left|Center|Right} Section,,,,,,,X,UGLB_BR_Art_Limbered_1,(10-7),IDS_ARSN_9lb_Cannon_Br,4,GFX_Art_British,,DRIL_Lvl6_Art_March,30,,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 
 , Brigade Commanders
-British Infantry Brigade Commander,OOB_MNK_BR_BGD_CMD_,Major General {pool:commanders_british},Brigade {seq:br_brigade},,,,,X,,UGLB_BR_Inf_Cdr_Brig,(7-13),,,GFX_CO_British,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+British Infantry Brigade Commander,OOB_MNK_BR_INF5_,Major General {pool:commanders_british},Brigade {seq:br_brigade},,,,,X,,UGLB_BR_Inf_Cdr_Brig,(7-13),,,GFX_CO_British,,DRIL_Lvl5_Inf_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+British Cavalry Brigade Commander,OOB_MNK_BR_CAV5_,Lieutenant-Colonel {pool:commanders_british},{rangeord:1-30} Regiment of Dragoons,,,,,X,,UGLB_BR_Cav_Cdr_Brig,(3-13),,,GFX_CO_Cav_British,,DRIL_Lvl5_Cav_Column,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+British Artillery Battery Commander,OOB_MNK_BR_ART5_,Captain {pool:commanders_british},{rangeord:1-9} Company RFA,,,,,X,,UGLB_BR_Art_Cdr_Bty,(4-8),,,GFX_CO_Art_British,,DRIL_Lvl5_Art_Line,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
 
 , Divisional Commanders
-British Infantry Division Commander,OOB_MNK_BR_DIV_CMD_,Lieutenant General {pool:commanders_british},{seq:br_div} Division,,,,X,,,UGLB_BR_Inf_Cdr_Div,(0-5),,,GFX_CO_British,,DRIL_Lvl4_Inf_DoubleLine_Br,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
+British Division Commander,OOB_MNK_BR_DIV_CMD_,Lieutenant General {pool:commanders_british},{seq:br_div} Division,,,,X,,,UGLB_BR_Inf_Cdr_Div,(0-5),,,GFX_CO_British,,DRIL_Lvl4_Inf_DoubleLine_Br,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,
 
 , Corps Commanders
 British Corps Commander,OOB_MNK_BR_COR_CMD_,General {pool:commanders_british},{seq:br_corps} Corps,,,X,,,,UGLB_BR_Inf_Cdr_Corps,(0-1),,,GFX_CO_British,,DRIL_Lvl3_Inf_Res_Corps_Br,1,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},,,,,,,,,,

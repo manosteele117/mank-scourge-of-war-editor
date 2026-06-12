@@ -66,7 +66,8 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
                     placed_units, objectives=None, intro_text: str = "",
                     start_time: str = "", victory_conditions: dict = None,
                     oob_names_path: str = None, scenario_name: str = "",
-                    inner_scenario_name: str = ""):
+                    inner_scenario_name: str = "",
+                    auto_fill_supply: bool = True):
     """Export OOB data as a complete game scenario directory.
 
     Directory layout under *scenario_dir* (the top-level timestamped folder)::
@@ -132,9 +133,35 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
                 if pu.get("formation"):
                     scenario_df.at[i, "formation"] = pu["formation"]
 
-    # ── Filter to only placed units ───────────────────────────────────
+    # ── Auto-fill unplaced supply/couriers ───────────────────────────
+    auto_fill_indices = set()
+    if auto_fill_supply and placed_units:
+        placed_row_indices_tmp = set(pu["row_index"] for pu in placed_units)
+        for pu in placed_units:
+            level = pu.get("level")
+            if level is None or level > 4:
+                continue
+            children = oob_data.get_direct_children(
+                pu["row_index"], exclude_supply=False)
+            for child_idx in children:
+                if child_idx in placed_row_indices_tmp:
+                    continue
+                child_class = str(
+                    oob_data.df.iloc[child_idx].get("CLASS", ""))
+                if "_Courier" in child_class or "_Wagon" in child_class:
+                    parent_pu = placed_lookup[pu["row_index"]]
+                    south = -1 * math.cos(math.radians(parent_pu["rotation"]))
+                    east = math.sin(math.radians(parent_pu["rotation"]))
+                    scenario_df.at[child_idx, "south"] = parent_pu["world_y"]
+                    scenario_df.at[child_idx, "east"] = parent_pu["world_x"]
+                    scenario_df.at[child_idx, "dirSouth"] = south
+                    scenario_df.at[child_idx, "dirEast"] = east
+                    auto_fill_indices.add(child_idx)
+
+    # ── Filter to only placed (+ auto-filled) units ──────────────────
     if placed_units:
-        placed_row_indices = set(pu["row_index"] for pu in placed_units)
+        placed_row_indices = set(
+            pu["row_index"] for pu in placed_units) | auto_fill_indices
         scenario_df = scenario_df[scenario_df.index.isin(placed_row_indices)].reset_index(drop=True)
 
     # ── Detect new units not in original import ────────────────────────

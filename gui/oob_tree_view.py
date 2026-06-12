@@ -1039,8 +1039,8 @@ class OOBTreeWidget(QTreeWidget):
             # Build settings summary text
             _BRANCH_ABBREV = {"INF": "Inf", "CAV": "Cav", "ART": "Art"}
             _BRANCH_UNIT_NAMES = {
-                5: {"INF": "Brigades", "CAV": "Brigades", "ART": "Batteries"},
-                6: {"INF": "Regiments", "CAV": "Squadrons", "ART": "Guns"},
+                5: {"INF": "Brigade", "CAV": "Brigade", "ART": "Batterie"},
+                6: {"INF": "Regiment", "CAV": "Squadron", "ART": "Gun"},
             }
 
             def _settings_label(cfg: dict) -> str:
@@ -1051,7 +1051,7 @@ class OOBTreeWidget(QTreeWidget):
                     bname = _BRANCH_ABBREV.get(branch, branch)
                     uname = _BRANCH_UNIT_NAMES[lvl].get(branch, f"{lname}s")
                     return f"Lvl {lvl} {bname} {uname}"
-                return f"Lvl {lvl} {lname}s"
+                return f"Lvl {lvl} {lname}"
 
             settings_lines = [f"Selected Parent: {items[0].text(0)}", "", "Settings:"]
             for cfg in config:
@@ -1077,8 +1077,7 @@ class OOBTreeWidget(QTreeWidget):
                 else:
                     bname = ""
                     uname = LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
-                suffix = "s" if count != 1 else ""
-                return f"{count} {bname} {uname}{suffix}".strip()
+                return f"{count} {bname} {uname}".strip()
 
             count_parts = []
             for cfg_idx, cfg in enumerate(config):
@@ -1195,13 +1194,15 @@ class OOBTreeWidget(QTreeWidget):
                     # Resolve modifiers using synthetic parent index
                     self.data._resolve_modifiers(row_dict, parent_idx)
 
-                    # Convert INT_COLUMNS
+                    # Convert INT_COLUMNS (preserve empty strings as-is)
                     for col in INT_COLUMNS:
                         if col in row_dict:
-                            try:
-                                row_dict[col] = int(float(str(row_dict[col]))) if str(row_dict[col]).strip() else 0
-                            except (ValueError, TypeError):
-                                row_dict[col] = 0
+                            val = str(row_dict[col]).strip()
+                            if val:
+                                try:
+                                    row_dict[col] = int(float(val))
+                                except (ValueError, TypeError):
+                                    pass
 
                     # Extract display values
                     name = str(row_dict.get("NAME1", "") or row_dict.get("Name", "") or "?")

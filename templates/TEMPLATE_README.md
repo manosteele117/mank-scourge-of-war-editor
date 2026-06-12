@@ -1,6 +1,6 @@
 # Template System
 
-Templates allow quick insertion of pre-configured units into the OOB. Each template defines a unit with default values for stats, weapons, graphics, and naming. When inserted, modifiers in template fields resolve automatically to create variation in units.
+Templates allow quick insertion of pre-configured units into the OOB. Each template defines a unit similarly to the OOB. When inserted, modifiers in template fields resolve automatically to create variation in units.
 
 ## Template Format
 
@@ -25,6 +25,7 @@ A template with `X` in `BTN 6` and empty hierarchy columns elsewhere is a level 
 
 ```csv
 Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
+
 Union Infantry Regiment,OOB_US_Inf_,{seq:us_inf_reg}th New York Infantry,,,,,,,X,UGLB_US_Inf_1,(1-0),IDS_US Springfield Model 1861,40,GFX_Union{pick:1|2|3|4|5},,DRIL_Lvl6_Inf_Column,{range:380-500},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
 ```
 
@@ -39,6 +40,19 @@ Each insertion under the same parent produces:
 ## Modifier Syntax
 
 Modifiers use `{...}` syntax within template field values. They resolve automatically on insertion and can be combined with static text.
+
+
+| Modifier | Description | Example
+|----------|-------------|--------|
+| `seq` | Sequential Numbering | {seq:us_cav_reg}
+| `seqord` | Sequential Ordinal Numbering | {seqord:us_inf_reg}
+| `cycle` | Cycling List | {cycle:1er\|2e} 
+| `pool` | Name Pool | {pool:union_commanders}
+| `range` | Random Integer | {range:1-10}
+| `rangeord` | Random Ordinal | {rangeord:1-60}
+| `pick` | Random Pick | {pick:a\|b\|c}
+
+## Modifier Details
 
 ### `{seq:name}` - Sequential Numbering
 
@@ -139,8 +153,8 @@ Useful for head counts, stats.
 Works like `{range:min-max}` but outputs an English ordinal numeral (1st, 2nd, 3rd, ...) instead of a plain integer.
 
 ```
-{rangeord:1-6}th Regiment    → 3rd Regiment
-{rangeord:1-10}th Battalion  → 7th Battalion
+{rangeord:1-6} Regiment    → 3rd Regiment
+{rangeord:1-10} Battalion  → 7th Battalion
 ```
 
 Useful when ordinal numbering is needed but the exact number is unknown at template time.
@@ -165,24 +179,9 @@ Modifiers can be combined with each other, or mixed freely with static text:
 "Dragoons {range:200-350}"                     → "Dragoons 287"
 ```
 
-## Placement Rules
 
-When right-clicking a unit in the tree view, the **Insert Template** menu shows available templates grouped by placement type:
-
-| Menu Label | Meaning | When Available |
-|------------|---------|----------------|
-| `Lvl N (peer)` | Insert as sibling at the same level, after the selected unit | Always (if templates exist at this level) |
-| `Lvl N+1 (child)` | Insert as child of the selected unit | When selected unit is below level 6 |
-
-Example: Right-clicking a Brigade (level 5):
-- **Lvl 5 (peer)** - Insert another Brigade as a sibling
-- **Lvl 6 (child)** - Insert a Regiment under this Brigade
-
-Right-clicking a Regiment (level 6):
-- **Lvl 6 (peer)** - Insert another Regiment as a sibling
-- No child option (level 6 is the deepest)
-
-## Saving Templates
+#
+# Saving Templates
 
 Right-click a unit and select **Save as Template** to save it to `templates/units/user_templates.csv`.
 
@@ -191,41 +190,17 @@ The saved template:
 - Has its hierarchy columns cleared with `X` set at the unit's actual level
 - Copies all other field values from the unit as-is
 
-## Complete Example: American Civil War OOB
-
-### Union Division
-
-```csv
-Name,ID,NAME1,NAME2,SIDE 1,ARMY 2,CORPS 3,DIV 4,BGDE 5,BTN 6,CLASS,PORTRAIT,Weapon,AMMO,FLAGS,FLAG2,Formation,Head Count,Ability,Command,Control,Leadership,Style,Experience,Fatigue,Morale,Close,Open,Edged,Firearm,Marksmanship,Horsemanship,Surgeon,Calisthenics
-Union Division,OOB_US_Div_,{seq:us_div}th Division,,,,,,X,,UGLB_US_Inf_Cdr_Div,(0-5),,,,,,,,,,,,,,,,
-
-Union Infantry Brigade,OOB_US_Brig_,{seq:us_brig}th Brigade,,,,,,,X,UGLB_US_Inf_Cdr_Brig,(0-8),,,,,,,,,,,,,,,,
-
-Union Infantry Regiment,OOB_US_Inf_,{seq:us_inf}th {pick:New York|Pennsylvania|Ohio|Maine|Vermont} Infantry,,,,,,,X,UGLB_US_Inf_1,(1-0),IDS_US Springfield Model 1861,{range:30-60},GFX_Union{pick:1|2|3|4|5},,DRIL_Lvl6_Inf_Column,{range:350-500},,,,,,{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9},{range:5-9}
-
-Union Infantry Commander,OOB_US_Cdr_,General {pool:union_commanders},,,,,,,X,UGLB_US_Inf_Cdr_Brig,(0-8),,,,,,,,,,,,,,,,
-```
-
-Inserting under a Corps (level 3):
-1. Insert Union Division (level 4, child) → "1st Division"
-2. Under that division, insert Union Infantry Brigade (level 5, child) → "1st Brigade"
-3. Under that brigade, insert Union Infantry Regiment (level 6, child) → "1st Pennsylvania Infantry"
-4. Insert another regiment → "2nd Ohio Infantry"
-5. Insert another → "3rd New York Infantry"
-
-Each regiment gets random stats, head count, weapon ammo, and flag variant.
-
 ## File Structure
 
 ```
 templates/
   headers/
-    oob_headers.csv          # Column header reference
+    oob_headers.csv           # Column header reference
   units/
-    default_templates.csv    # Ships with the app
-    user_templates.csv       # Created by "Save as Template"
+    *_templates.csv           # Templates that ship with app
+    user_templates.csv        # Created by "Save as Template"
   pools/
-    union_commanders.txt     # One name per line
+    union_commanders.txt      # One name per line
     cs_commanders.txt
     french_commanders.txt
     british_commanders.txt
@@ -235,7 +210,5 @@ templates/
 ## Notes
 
 - Pool files are loaded at startup and cached. Click **Load Templates** to reload after adding new pools.
-- Sequence counters (`{seq:...}`) reset when the OOB is reloaded. Existing numbered units are preserved; new insertions continue from where the count left off.
-- Cycle modifiers (`{cycle:...}`) reset when the OOB is reloaded. Each unique pipe-separated list is tracked independently per parent.
-- Templates can be created by hand in any CSV editor. Use the header from `templates/headers/oob_headers.csv` as a reference.
+- Templates can be created by hand in any CSV editor. Use the header from `templates/headers/oob_headers.csv` as a reference, or work from the existing files.
 - The `Name` column (not `NAME1`) is used for the context menu display label, this is not used anywhere, so name your template by changing this field.

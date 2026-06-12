@@ -194,11 +194,11 @@ class OOBData:
         df.to_csv(path, encoding="cp1252", index=False)
         self.filepath = path
 
-    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None, intro_text: str = "", start_time: str = "", victory_conditions: dict = None, oob_names_path: str = None, scenario_name: str = "", inner_scenario_name: str = "") -> None:
+    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None, intro_text: str = "", start_time: str = "", victory_conditions: dict = None, oob_names_path: str = None, scenario_name: str = "", inner_scenario_name: str = "", auto_fill_supply: bool = True) -> None:
         export_scenario(self, scenario_dir, map_name, oob_filename,
                         placed_units, objectives, intro_text, start_time,
                         victory_conditions, oob_names_path, scenario_name,
-                        inner_scenario_name)
+                        inner_scenario_name, auto_fill_supply=auto_fill_supply)
 
     # ── Row access ─────────────────────────────────────────────────
 

@@ -68,6 +68,13 @@ class SettingsTab(QWidget):
             lambda val: self.formation_level_label.setText(f"{val}+"))
         layout.addLayout(pf_row)
 
+        # Sync slider enabled state with checkbox
+        def _sync_formation_slider_enabled(checked):
+            self.formation_level_slider.setEnabled(checked)
+            self.formation_level_label.setEnabled(checked)
+        debug_plot_cb.toggled.connect(_sync_formation_slider_enabled)
+        _sync_formation_slider_enabled(debug_plot_cb.isChecked())
+
         debug_logging_cb = QCheckBox("Debug Logging")
         debug_logging_cb.setToolTip("Enable verbose debug logging to console.")
         debug_logging_cb.toggled.connect(
@@ -104,6 +111,16 @@ class SettingsTab(QWidget):
         layout.addLayout(upy_row)
         self._spinboxes["units_per_yard"] = units_per_yard_spinbox
 
+        auto_fill_cb = QCheckBox("Auto-Fill Unplaced Supply/Couriers On Save")
+        auto_fill_cb.setToolTip(
+            "When saving a scenario, automatically include unplaced courier/wagon "
+            "direct children of placed commanders at the commander's position.")
+        auto_fill_cb.toggled.connect(
+            lambda checked: self.setting_changed.emit(
+                "auto_fill_supply_on_save", "true" if checked else "false"))
+        layout.addWidget(auto_fill_cb)
+        self._checkboxes["auto_fill_supply_on_save"] = auto_fill_cb
+
         return group
 
     def apply_settings(self, config: dict):
@@ -130,6 +147,11 @@ class SettingsTab(QWidget):
 
         pf_val = config.get("formation_plot_level", "5")
         self.formation_level_slider.setValue(int(pf_val))
+
+        auto_fill_val = config.get("auto_fill_supply_on_save", "true")
+        cb = self._checkboxes.get("auto_fill_supply_on_save")
+        if cb is not None:
+            cb.setChecked(auto_fill_val == "true")
 
     def get_settings(self) -> dict:
         """Return current settings as a dict."""
