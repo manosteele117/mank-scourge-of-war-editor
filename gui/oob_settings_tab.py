@@ -53,7 +53,7 @@ class SettingsTab(QWidget):
         pf_row.addWidget(pf_level_label)
         self.formation_level_slider = QSlider(Qt.Orientation.Horizontal)
         self.formation_level_slider.setRange(3, 6)
-        self.formation_level_slider.setValue(5)
+        self.formation_level_slider.setValue(3)
         self.formation_level_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.formation_level_slider.setTickInterval(1)
         self.formation_level_slider.setFixedWidth(120)
@@ -125,7 +125,7 @@ class SettingsTab(QWidget):
 
     def apply_settings(self, config: dict):
         """Restore checkbox and spinbox states from a config dict."""
-        debug_val = config.get("debug_formation_plot", "true")
+        debug_val = config.get("debug_formation_plot", "false")
         cb = self._checkboxes.get("debug_formation_plot")
         if cb is not None:
             cb.setChecked(debug_val == "true")
