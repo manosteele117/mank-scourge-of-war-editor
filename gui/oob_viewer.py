@@ -365,7 +365,7 @@ class OOBViewer(QMainWindow):
             self.config.get_int("name_level", 3))
 
         # File path labels
-        for key in ("oob", "drills", "rifles", "artillery", "gfx", "gfxpack", "unitglobal"):
+        for key in ("oob", "drills", "rifles", "artillery", "gfx", "gfxpack", "unitglobal", "oobnames"):
             path = self.config.get_path(key)
             if path:
                 self.files_tab.set_entry_path(key, path)
@@ -428,12 +428,14 @@ class OOBViewer(QMainWindow):
         os.makedirs(base_dir, exist_ok=True)
 
         scenario_name = self.scenario.get_scenario_name().strip()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if scenario_name:
             safe_name = _re.sub(r'[<>:"/\\|?*]', '_', scenario_name)
-            scenario_dir = os.path.join(base_dir, safe_name)
+            scenario_dir = os.path.join(base_dir, f"{safe_name}_{timestamp}")
+            inner_name = safe_name
         else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             scenario_dir = os.path.join(base_dir, f"Generated_Scenario_{timestamp}")
+            inner_name = f"Generated_Scenario_{timestamp}"
 
         if os.path.exists(scenario_dir):
             reply = QMessageBox.question(
@@ -445,6 +447,7 @@ class OOBViewer(QMainWindow):
 
         map_name = self.map_viewer.map_ini_path.stem if self.map_viewer.map_ini_path else ""
         oob_filename = os.path.basename(self._oob_path) if self._oob_path else ""
+        oob_names_path = self.config.get_path("oobnames") or None
 
         try:
             self.data.save_scenario(
@@ -454,6 +457,9 @@ class OOBViewer(QMainWindow):
                 intro_text=self.scenario.get_intro_text(),
                 start_time=f"{self.scenario.get_start_time()[0]:02d}:{self.scenario.get_start_time()[1]:02d}:00",
                 victory_conditions=self.scenario.get_victory_conditions(),
+                oob_names_path=oob_names_path,
+                scenario_name=scenario_name,
+                inner_scenario_name=inner_name,
             )
             QMessageBox.information(self, "Save Successful",
                                     f"Scenario file saved to:\n{scenario_dir}")
@@ -621,6 +627,8 @@ class OOBViewer(QMainWindow):
             load_gfxpack(file_path)
         elif config_key == "map-ini":
             self.map_viewer.load_map_from_ini(file_path)
+        elif config_key == "oobnames":
+            pass  # path stored; loaded on demand
 
     def _on_setting_changed(self, key: str, value: str):
         if key == "debug_formation_plot":

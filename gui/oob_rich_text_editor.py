@@ -246,8 +246,6 @@ class RichTextEditor(QWidget):
         if oob is None or oob.df is None or len(oob.df) == 0:
             return "<p>No OOB data loaded.</p>"
 
-        from core.formation import detect_unit_type
-
         # ── Scenario metadata ──
         name = tab.get_scenario_name() or "Untitled Scenario"
         map_name = tab.map_name_edit.text() or "Unknown Map"
@@ -256,126 +254,13 @@ class RichTextEditor(QWidget):
         start_time = f"{hour:02d}:{minute:02d}"
         victory = tab.get_victory_conditions()
 
-        df = oob.df
-        import pandas as pd
+        from core.oob_model import build_forces_hierarchy
 
-        # ── Collect all valid rows sorted by hierarchy key (same order as tree view) ──
-        valid = [(i, oob.get_level(i)) for i in range(len(df))]
-        valid = [(i, lv) for i, lv in valid if lv is not None]
-        valid.sort(key=lambda x: tuple(oob._hierarchy_keys[x[0]].tolist()))
+        placed_row_indices = tab.map_viewer.placed_row_indices or None
+        sides, subtree_totals = build_forces_hierarchy(oob, placed_row_indices)
 
-        # ── Build hierarchy: side → army → corps → division → brigade ──
-        # Each entry: {"name": str, "children": [...], "head_count": int, "class_val": str}
-        sides = {}  # side_num → list of army dicts
-        current = {lv: None for lv in range(1, 7)}  # track current parent at each level
-
-        for idx, level in valid:
-            row = df.iloc[idx]
-            side_num = int(row.get("SIDE 1", 0) or 0)
-            army_num = int(row.get("ARMY 2", 0) or 0)
-            corps_num = int(row.get("CORPS 3", 0) or 0)
-            div_num = int(row.get("DIV 4", 0) or 0)
-            bgde_num = int(row.get("BGDE 5", 0) or 0)
-            btn_num = int(row.get("BTN 6", 0) or 0)
-
-            if side_num == 0:
-                continue
-
-            raw_class = row.get("CLASS", "")
-            class_val = "" if pd.isna(raw_class) else str(raw_class)
-            node = {
-                "name": self._display_name(row),
-                "children": [],
-                "head_count": int(row.get("Head Count", 0) or 0),
-                "class_val": class_val,
-                "level": level,
-            }
-
-            if level == 1:
-                # Side
-                if side_num not in sides:
-                    sides[side_num] = []
-                current[1] = node
-                for lv in range(2, 7):
-                    current[lv] = None
-            elif level == 2:
-                # Army
-                sides.setdefault(side_num, []).append(node)
-                current[2] = node
-                for lv in range(3, 7):
-                    current[lv] = None
-            elif level == 3:
-                # Corps
-                if current[2] is not None:
-                    current[2]["children"].append(node)
-                current[3] = node
-                for lv in range(4, 7):
-                    current[lv] = None
-            elif level == 4:
-                # Division
-                if current[3] is not None:
-                    current[3]["children"].append(node)
-                elif current[2] is not None:
-                    current[2]["children"].append(node)
-                current[4] = node
-                for lv in range(5, 7):
-                    current[lv] = None
-            elif level == 5:
-                # Brigade
-                if current[4] is not None:
-                    current[4]["children"].append(node)
-                elif current[3] is not None:
-                    current[3]["children"].append(node)
-                elif current[2] is not None:
-                    current[2]["children"].append(node)
-                current[5] = node
-                current[6] = None
-            elif level == 6:
-                # Regiment
-                if current[5] is not None:
-                    current[5]["children"].append(node)
-                elif current[4] is not None:
-                    current[4]["children"].append(node)
-                elif current[3] is not None:
-                    current[3]["children"].append(node)
-                elif current[2] is not None:
-                    current[2]["children"].append(node)
-
-        # ── Compute subtree totals for army roundups ──
-        def subtree_totals(node):
-            """Returns (regiments, batteries, squadrons, total_men, total_guns)."""
-            reg, bat, sqd, men, guns = 0, 0, 0, 0, 0
-            lvl = node["level"]
-            if lvl == 6:
-                men = node["head_count"]
-                ut = detect_unit_type(node["class_val"])
-                if ut == "2":
-                    sqd = 1
-                elif ut == "3":
-                    bat = 1
-                    guns = 1
-                else:
-                    reg = 1
-            else:
-                for child in node["children"]:
-                    c_reg, c_bat, c_sqd, c_men, c_guns = subtree_totals(child)
-                    reg += c_reg
-                    bat += c_bat
-                    sqd += c_sqd
-                    men += c_men
-                    guns += c_guns
-                # Also count this node itself if it's level 5 (direct unit, not just a folder)
-                if lvl == 5:
-                    men += node["head_count"]
-                    ut = detect_unit_type(node["class_val"])
-                    if ut == "2":
-                        sqd += 1
-                    elif ut == "3":
-                        bat += 1
-                        guns += 1
-                    else:
-                        reg += 1
-            return reg, bat, sqd, men, guns
+        if not sides:
+            return ""
 
         # ── Generate output ──
         lines = []
@@ -466,17 +351,6 @@ class RichTextEditor(QWidget):
             # Line break between corps (level 3 siblings)
             if level == 3 and i < len(node["children"]) - 1:
                 lines.append("<p></p>")
-
-    def _display_name(self, row) -> str:
-        """Format a unit's name as 'NAME2, NAME1' or just 'NAME1' if NAME2 is empty."""
-        import pandas as _pd
-        raw_name2 = row.get("NAME2", "")
-        raw_name1 = row.get("NAME1", "")
-        name2 = "" if _pd.isna(raw_name2) else str(raw_name2).strip()
-        name1 = "" if _pd.isna(raw_name1) else str(raw_name1).strip()
-        if name2:
-            return f"{name2}, {name1}"
-        return name1
 
     def _subordinate_men(self, node):
         """Count total head count of all descendants of a node (not including the node itself)."""

@@ -27,7 +27,7 @@ class AppConfig:
             parser = configparser.ConfigParser()
             parser.add_section("paths")
             for key in ("map-ini", "drills", "oob", "rifles", "artillery",
-                        "gfx", "gfxpack", "unitglobal"):
+                        "gfx", "gfxpack", "unitglobal", "oobnames"):
                 parser.set("paths", key, "")
             with open(self._config_path, "w") as f:
                 parser.write(f)
@@ -86,7 +86,7 @@ class AppConfig:
         result = {}
 
         path_keys = ("map-ini", "drills", "oob", "rifles", "artillery",
-                     "gfx", "gfxpack", "unitglobal", "template_files_enabled")
+                     "gfx", "gfxpack", "unitglobal", "oobnames", "template_files_enabled")
         for key in path_keys:
             result[key] = parser.get("paths", key, fallback="")
 

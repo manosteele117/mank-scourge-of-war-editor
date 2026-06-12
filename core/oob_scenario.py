@@ -5,9 +5,11 @@ Extracted from OOBData.save_scenario() and the standalone _copy_templates().
 
 import os
 import math
+import re
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from constants import HIERARCHY_COLS, INT_COLUMNS
@@ -62,12 +64,20 @@ VC_SECTION_MAP = {
 
 def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: str,
                     placed_units, objectives=None, intro_text: str = "",
-                    start_time: str = "", victory_conditions: dict = None):
+                    start_time: str = "", victory_conditions: dict = None,
+                    oob_names_path: str = None, scenario_name: str = "",
+                    inner_scenario_name: str = ""):
     """Export OOB data as a complete game scenario directory.
+
+    Directory layout under *scenario_dir* (the top-level timestamped folder)::
+
+        Scenarios/<inner_name>/   – scenario.csv, templates, intro, maplocations, ini
+        OOBs/                     – OOB_SB_<name>.csv  (only when new units exist)
+        Layout/Media/Language/    – OOBNames.xml       (only when new units exist)
 
     Args:
         oob_data: OOBData instance with loaded data.
-        scenario_dir: Destination directory path.
+        scenario_dir: Top-level destination directory (already timestamped).
         map_name: Name of the game map (without extension).
         oob_filename: Original OOB CSV filename for the MASTER line.
         placed_units: List of dicts with row_index, world_x, world_y, rotation, formation.
@@ -75,8 +85,22 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
         intro_text: Custom intro text in game HTML format.
         start_time: Start time string (HH:MM:SS).
         victory_conditions: Dict of label -> points.
+        oob_names_path: Path to the loaded OOBNames.xml file (optional).
+        scenario_name: Name of the scenario, used for OOBNames output filename.
+        inner_scenario_name: Subfolder name under Scenarios/ (default: scenario_name).
     """
-    df = oob_data._df_sorted_by_hierarchy(oob_data.df.copy())
+    inner_name = inner_scenario_name or scenario_name or "Scenario"
+    scenarios_dir = os.path.join(scenario_dir, "Scenarios", inner_name)
+    os.makedirs(scenario_dir, exist_ok=True)
+    os.makedirs(scenarios_dir, exist_ok=True)
+
+    # ── Build scenario_df (preserving original row indices) ────────────
+    keys = np.array(
+        [list(oob_data.get_hierarchy_key_by_index(i)) for i in range(len(oob_data.df))],
+        dtype=np.int64,
+    )
+    order = np.lexsort(keys.T[::-1])
+    df = oob_data.df.iloc[order].copy()
     if "line_number" in df.columns:
         df = df.drop(columns=["line_number"])
 
@@ -93,6 +117,7 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
         else:
             scenario_df[scenario_col] = ""
 
+    # ── Apply placed-unit positions ───────────────────────────────────
     if placed_units:
         placed_lookup = {pu["row_index"]: pu for pu in placed_units}
         for i in scenario_df.index:
@@ -107,15 +132,38 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
                 if pu.get("formation"):
                     scenario_df.at[i, "formation"] = pu["formation"]
 
+    # ── Filter to only placed units ───────────────────────────────────
     if placed_units:
         placed_row_indices = set(pu["row_index"] for pu in placed_units)
         scenario_df = scenario_df[scenario_df.index.isin(placed_row_indices)].reset_index(drop=True)
 
-    os.makedirs(scenario_dir, exist_ok=True)
-    path = os.path.join(scenario_dir, "scenario.csv")
+    # ── Detect new units not in original import ────────────────────────
+    has_new = False
+    if placed_units:
+        if oob_data._original_df is not None and "ID" in oob_data.df.columns:
+            orig_ids = set(oob_data._original_df["ID"].astype(str))
+            for pu in placed_units:
+                idx = pu["row_index"]
+                if 0 <= idx < len(oob_data.df):
+                    row_id = str(oob_data.df.iloc[idx].get("ID", ""))
+                    if row_id and row_id not in orig_ids:
+                        has_new = True
+                        break
+        else:
+            has_new = True  # no original file, all units are new
+
+    # ── Save OOB (conditional) ────────────────────────────────────────
+    if has_new:
+        oob_dir = os.path.join(scenario_dir, "OOBs")
+        os.makedirs(oob_dir, exist_ok=True)
+        safe = re.sub(r'[<>:"/\\|?*]', '_', scenario_name) if scenario_name else "Scenario"
+        oob_filename = f"OOB_SB_{safe}.csv"
+        _save_oob_for_scenario(oob_data, os.path.join(oob_dir, oob_filename))
+
+    # ── Write scenario.csv + MASTER line ──────────────────────────────
+    path = os.path.join(scenarios_dir, "scenario.csv")
     scenario_df.to_csv(path, encoding="cp1252", index=False)
 
-    # Insert MASTER line
     with open(path, "r", encoding="cp1252") as f:
         lines = f.readlines()
     master_fields = ["MASTER", oob_filename] + [""] * (len(SCENARIO_COLUMNS) - 2)
@@ -124,15 +172,19 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
     with open(path, "w", encoding="cp1252") as f:
         f.writelines(lines)
 
-    _copy_templates(scenario_dir)
+    # ── Copy template files ───────────────────────────────────────────
+    _copy_templates(scenarios_dir)
+    _copy_top_level_templates(scenario_dir)
 
+    # ── Intro text ────────────────────────────────────────────────────
     if intro_text:
-        intro_path = os.path.join(scenario_dir, "EnglishScenIntro.txt")
+        intro_path = os.path.join(scenarios_dir, "EnglishScenIntro.txt")
         with open(intro_path, "w", encoding="cp1252") as f:
             f.write(intro_text)
 
+    # ── Map locations / objectives ────────────────────────────────────
     if objectives:
-        maplocations_path = os.path.join(scenario_dir, "maplocations.csv")
+        maplocations_path = os.path.join(scenarios_dir, "maplocations.csv")
         with open(maplocations_path, "w", encoding="cp1252") as f:
             f.write(",".join(MAPLOCATIONS_HEADER) + "\n")
             for obj in objectives:
@@ -140,8 +192,43 @@ def export_scenario(oob_data, scenario_dir: str, map_name: str, oob_filename: st
                 row = ",".join(str(fields.get(col, "")) for col in MAPLOCATIONS_HEADER)
                 f.write(row + "\n")
 
+    # ── Scenario INI patching ─────────────────────────────────────────
     if map_name or start_time or victory_conditions:
-        _patch_scenario_ini(scenario_dir, map_name, start_time, victory_conditions)
+        _patch_scenario_ini(scenarios_dir, map_name, start_time, victory_conditions)
+
+    # ── OOBNames.xml (conditional) ────────────────────────────────────
+    if has_new and oob_names_path and placed_units:
+        from core.oob_names import parse_existing_ids, generate_oob_names_xml
+        try:
+            existing_ids = parse_existing_ids(oob_names_path)
+            placed_indices = {pu["row_index"] for pu in placed_units}
+            media_dir = os.path.join(scenario_dir, "Layout", "Media", "Language")
+            os.makedirs(media_dir, exist_ok=True)
+            generate_oob_names_xml(
+                oob_data.df, placed_indices, existing_ids,
+                scenario_name, media_dir,
+            )
+        except Exception as e:
+            print(f"Warning: Failed to generate OOBNames.xml: {e}")
+
+
+def _save_oob_for_scenario(oob_data, path: str) -> None:
+    """Save the current OOB to *path* without updating oob_data.filepath.
+
+    Restores original column headers and sorts by hierarchy like save_csv,
+    but is a pure export side-effect.
+    """
+    df = oob_data._df_sorted_by_hierarchy(oob_data.df.copy())
+    if "line_number" in df.columns:
+        df = df.drop(columns=["line_number"])
+    if oob_data._original_headers:
+        rename_map = {
+            internal: original
+            for internal, original in oob_data._original_headers.items()
+            if internal in df.columns
+        }
+        df = df.rename(columns=rename_map)
+    df.to_csv(path, encoding="cp1252", index=False)
 
 
 def _patch_scenario_ini(scenario_dir: str, map_name: str, start_time: str,
@@ -186,6 +273,16 @@ def _copy_templates(scenario_dir: str):
         "maplocations.csv",
         "scenario.ini",
     ):
+        src = os.path.join(templates_dir, template_file)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(scenario_dir, template_file))
+
+
+def _copy_top_level_templates(scenario_dir: str):
+    """Copy EnglishModIntro.txt and README.txt to the top-level scenario directory."""
+    templates_dir = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "templates", "scenario")
+    for template_file in ("EnglishModIntro.txt", "README.txt"):
         src = os.path.join(templates_dir, template_file)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(scenario_dir, template_file))

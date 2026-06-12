@@ -149,6 +149,9 @@ class FilesTab(QWidget):
                         "CSV Files (*.csv)", "Defines Sprite IDs - mostly for flags (gfxpack.csv)")
         self._add_entry("unitglobal.csv", "unitglobal", layout,
                         "CSV Files (*.csv)", "Defines unit classes (unitglobal.csv)")
+        self._add_separator(layout)
+        self._add_entry("OOBNames.xml", "oobnames", layout,
+                        "XML Files (*.xml)", "OOB unit name overrides (OOBNames.xml)")
 
         return group
 
@@ -319,6 +322,7 @@ mods, eras, campaigns.
             ("gfx", "Logistics/gfx.csv"),
             ("gfxpack", "Logistics/gfxpack.csv"),
             ("unitglobal", "Logistics/unitglobal.csv"),
+            ("oobnames", "Layout/Media/Language/OOBNames.xml"),
         ]
         for key, rel_path in FILE_MAP:
             full_path = os.path.join(base_dir, rel_path)

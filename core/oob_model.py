@@ -194,10 +194,11 @@ class OOBData:
         df.to_csv(path, encoding="cp1252", index=False)
         self.filepath = path
 
-    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None, intro_text: str = "", start_time: str = "", victory_conditions: dict = None) -> None:
+    def save_scenario(self, scenario_dir: str, map_name: str, oob_filename: str, placed_units, objectives=None, intro_text: str = "", start_time: str = "", victory_conditions: dict = None, oob_names_path: str = None, scenario_name: str = "", inner_scenario_name: str = "") -> None:
         export_scenario(self, scenario_dir, map_name, oob_filename,
                         placed_units, objectives, intro_text, start_time,
-                        victory_conditions)
+                        victory_conditions, oob_names_path, scenario_name,
+                        inner_scenario_name)
 
     # ── Row access ─────────────────────────────────────────────────
 
@@ -803,6 +804,65 @@ class OOBData:
             self._build_adjacency_index()
             return True
 
+    def add_root_unit(self, template: Dict[str, Any]) -> int:
+        """Insert a new root-level (Side) unit from template data.
+
+        Used when the tree is empty or when the user right-clicks empty space
+        to create a new Side commander.  Returns the new row index.
+        """
+        self._ensure_built()
+        new_row_data = template["row"]
+
+        # Determine the next Side-level value
+        new_side_value = 1
+        if self.df is not None and len(self.df) > 0:
+            for i in range(len(self.df)):
+                lvl = self.get_level(i)
+                if lvl == 1:
+                    val = self.df.at[i, HIERARCHY_COLS[0]]
+                    if pd.notna(val) and val != 0:
+                        new_side_value = max(new_side_value, int(val) + 1)
+
+        # Determine columns to use: existing df columns or template keys
+        cols = (self.df.columns if self.df is not None and len(self.df) > 0
+                else list(new_row_data.keys()))
+
+        # Build the row dict from template data
+        new_row = {col: new_row_data.get(col, "") for col in cols}
+
+        # Set hierarchy columns: [new_side_value, 0, 0, 0, 0, 0]
+        for i, hcol in enumerate(HIERARCHY_COLS):
+            if hcol in new_row:
+                new_row[hcol] = new_side_value if i == 0 else 0
+
+        new_row["line_number"] = -1
+
+        # Resolve template modifiers (seq, pool, range, pick)
+        self._resolve_modifiers(new_row, 0)
+
+        # Assign a unique ID
+        template_id = str(new_row.get("ID", "")).strip()
+        if template_id:
+            new_row["ID"] = self._next_unique_id(template_id)
+
+        # Create the new row as a single-row DataFrame
+        new_df = pd.DataFrame([new_row])
+        for col in INT_COLUMNS:
+            if col in new_df.columns:
+                new_df[col] = pd.to_numeric(new_df[col], errors="coerce").astype("Int64")
+
+        # Append to existing DataFrame or create fresh
+        if self.df is not None and len(self.df) > 0:
+            self.df = pd.concat([self.df, new_df], ignore_index=True)
+        else:
+            self.df = new_df
+
+        new_row_idx = len(self.df) - 1
+
+        self._invalidate_caches()
+        self._build_adjacency_index()
+        return new_row_idx
+
     def _next_unique_id(self, template_id: str) -> str:
         return self.templates.next_unique_id(template_id)
 
@@ -881,5 +941,162 @@ class OOBData:
 
         self._invalidate_caches()
         self._build_adjacency_index()
+
+
+# ── Hierarchy display utilities ──────────────────────────────────
+
+def _display_name(row) -> str:
+    """Format a unit's name as 'NAME2, NAME1' or just 'NAME1' if NAME2 is empty."""
+    raw_name2 = row.get("NAME2", "")
+    raw_name1 = row.get("NAME1", "")
+    name2 = "" if pd.isna(raw_name2) else str(raw_name2).strip()
+    name1 = "" if pd.isna(raw_name1) else str(raw_name1).strip()
+    if name2:
+        return f"{name2}, {name1}"
+    return name1
+
+
+def subtree_totals(node):
+    """Compute subtree totals for a hierarchy node.
+
+    Returns (regiments, batteries, squadrons, total_men, total_guns).
+    """
+    reg, bat, sqd, men, guns = 0, 0, 0, 0, 0
+    lvl = node["level"]
+    if lvl == 6:
+        men = node["head_count"]
+        ut = detect_unit_type(node["class_val"])
+        if ut == "2":
+            sqd = 1
+        elif ut == "3":
+            bat = 1
+            guns = 1
+        else:
+            reg = 1
+    else:
+        for child in node["children"]:
+            c_reg, c_bat, c_sqd, c_men, c_guns = subtree_totals(child)
+            reg += c_reg
+            bat += c_bat
+            sqd += c_sqd
+            men += c_men
+            guns += c_guns
+        # Level 5 nodes are direct units, not just containers
+        if lvl == 5:
+            men += node["head_count"]
+            ut = detect_unit_type(node["class_val"])
+            if ut == "2":
+                sqd += 1
+            elif ut == "3":
+                bat += 1
+                guns += 1
+            else:
+                reg += 1
+    return reg, bat, sqd, men, guns
+
+
+def build_forces_hierarchy(oob_data, placed_row_indices=None):
+    """Build the side→army→corps→division→brigade→regiment hierarchy.
+
+    If *placed_row_indices* is provided and non-empty, only those rows
+    (plus their unplaced ancestor rows) are included so the tree always
+    has proper side/army/corps structure.  When no units are placed the
+    result is an empty dict.
+
+    Returns:
+        ``(sides, subtree_totals_fn)`` where *sides* maps side number to
+        a list of army-level node dicts and *subtree_totals_fn* is the
+        ``subtree_totals`` callable.
+    """
+    df = oob_data.df
+    if df is None or len(df) == 0:
+        return {}, subtree_totals
+
+    if not placed_row_indices:
+        return {}, subtree_totals
+
+    rows_to_include = set(placed_row_indices)
+
+    # Walk up ancestors so the hierarchy tree is always complete
+    for row_idx in list(placed_row_indices):
+        key = oob_data.get_hierarchy_key_by_index(row_idx)
+        parent_key = oob_data.get_parent_key(key)
+        while not all(v == 0 for v in parent_key):
+            parent_idx = oob_data.get_row_index_by_key(parent_key)
+            if parent_idx is None or parent_idx in rows_to_include:
+                break
+            rows_to_include.add(parent_idx)
+            parent_key = oob_data.get_parent_key(parent_key)
+
+    # Collect valid rows and sort by hierarchy key
+    valid = [(i, oob_data.get_level(i)) for i in rows_to_include]
+    valid = [(i, lv) for i, lv in valid if lv is not None]
+    valid.sort(key=lambda x: tuple(oob_data._hierarchy_keys[x[0]].tolist()))
+
+    # Build hierarchy: side → army → corps → division → brigade → regiment
+    sides = {}
+    current = {lv: None for lv in range(1, 7)}
+
+    for idx, level in valid:
+        row = df.iloc[idx]
+        side_num = int(row.get("SIDE 1", 0) or 0)
+        if side_num == 0:
+            continue
+
+        raw_class = row.get("CLASS", "")
+        class_val = "" if pd.isna(raw_class) else str(raw_class)
+        node = {
+            "name": _display_name(row),
+            "children": [],
+            "head_count": int(row.get("Head Count", 0) or 0),
+            "class_val": class_val,
+            "level": level,
+        }
+
+        if level == 1:
+            if side_num not in sides:
+                sides[side_num] = []
+            current[1] = node
+            for lv in range(2, 7):
+                current[lv] = None
+        elif level == 2:
+            sides.setdefault(side_num, []).append(node)
+            current[2] = node
+            for lv in range(3, 7):
+                current[lv] = None
+        elif level == 3:
+            if current[2] is not None:
+                current[2]["children"].append(node)
+            current[3] = node
+            for lv in range(4, 7):
+                current[lv] = None
+        elif level == 4:
+            if current[3] is not None:
+                current[3]["children"].append(node)
+            elif current[2] is not None:
+                current[2]["children"].append(node)
+            current[4] = node
+            for lv in range(5, 7):
+                current[lv] = None
+        elif level == 5:
+            if current[4] is not None:
+                current[4]["children"].append(node)
+            elif current[3] is not None:
+                current[3]["children"].append(node)
+            elif current[2] is not None:
+                current[2]["children"].append(node)
+            current[5] = node
+            current[6] = None
+        elif level == 6:
+            if current[5] is not None:
+                current[5]["children"].append(node)
+            elif current[4] is not None:
+                current[4]["children"].append(node)
+            elif current[3] is not None:
+                current[3]["children"].append(node)
+            elif current[2] is not None:
+                current[2]["children"].append(node)
+
+    return sides, subtree_totals
 
 

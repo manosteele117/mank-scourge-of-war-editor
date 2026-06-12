@@ -38,14 +38,14 @@ class _LevelRow(QFrame):
 
         self.min_spin = QSpinBox()
         self.min_spin.setRange(0, 99)
-        self.min_spin.setValue(1)
+        self.min_spin.setValue(0)
         self.min_spin.setPrefix("Min: ")
         self.min_spin.setFixedWidth(100)
         layout.addWidget(self.min_spin)
 
         self.max_spin = QSpinBox()
         self.max_spin.setRange(0, 99)
-        self.max_spin.setValue(1)
+        self.max_spin.setValue(0)
         self.max_spin.setPrefix("Max: ")
         self.max_spin.setFixedWidth(100)
         layout.addWidget(self.max_spin)
@@ -102,14 +102,14 @@ class _BranchColumn(QWidget):
 
         self.min_spin = QSpinBox()
         self.min_spin.setRange(0, 99)
-        self.min_spin.setValue(1)
+        self.min_spin.setValue(0)
         self.min_spin.setPrefix("Min: ")
         self.min_spin.setFixedWidth(80)
         row1.addWidget(self.min_spin)
 
         self.max_spin = QSpinBox()
         self.max_spin.setRange(0, 99)
-        self.max_spin.setValue(1)
+        self.max_spin.setValue(0)
         self.max_spin.setPrefix("Max: ")
         self.max_spin.setFixedWidth(80)
         row1.addWidget(self.max_spin)

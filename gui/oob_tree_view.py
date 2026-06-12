@@ -62,6 +62,7 @@ class OOBTreeWidget(QTreeWidget):
         self._drop_target_item = None
         self._drop_target_valid = False
         self._drop_target_original_bg = None
+        self._empty_tree_insert = False
 
         self.setColumnCount(5)
         self.setHeaderLabels(["Unit", "Level", "Strength", "Experience", "Line"])
@@ -644,7 +645,35 @@ class OOBTreeWidget(QTreeWidget):
 
     def show_context_menu(self, position) -> None:
         item = self.itemAt(position)
+
         if not item:
+            # Right-click on empty space: offer only Insert Template > Lvl 1 (peer)
+            if not self._templates:
+                return
+            lvl1_templates = [t for t in self._templates if t["level"] == 1]
+            if not lvl1_templates:
+                return
+
+            menu = QMenu()
+            insert_menu = menu.addMenu("Insert Template")
+            peer_menu = insert_menu.addMenu("Lvl 1 (peer)")
+            for t in sorted(lvl1_templates, key=lambda x: x["name"]):
+                action = peer_menu.addAction(t["name"])
+                action.setData(json.dumps({
+                    "file": t["file"], "id": t["id"],
+                    "level": t["level"], "peer": True
+                }))
+
+            result = menu.exec(self.mapToGlobal(position))
+            if result is not None:
+                data = result.data()
+                if data and isinstance(data, str):
+                    try:
+                        info = json.loads(data)
+                        self._empty_tree_insert = True
+                        self.action_insert_template(info)
+                    except (json.JSONDecodeError, KeyError):
+                        pass
             return
 
         menu = QMenu()
@@ -896,18 +925,37 @@ class OOBTreeWidget(QTreeWidget):
 
     def action_insert_template(self, info: dict) -> None:
         """Insert a template unit at the selected location."""
-        items = self.selectedItems()
-        if not items:
-            return
-        row_index = items[0].data(0, Qt.UserRole)
-        if row_index is None:
-            return
-
         template = next((t for t in self._templates
                          if t["file"] == info["file"] and t["id"] == info["id"]),
                         None)
         if template is None:
             QMessageBox.warning(self, "Insert Template", "Template not found")
+            return
+
+        # Empty-tree insert: no unit selected, add a new root (Side) unit
+        if self._empty_tree_insert:
+            self._empty_tree_insert = False
+            try:
+                new_idx = self.data.add_root_unit(template)
+                if isinstance(new_idx, int):
+                    self.populate()
+                    self.select_unit(new_idx)
+                    self.unit_added.emit()
+                else:
+                    QMessageBox.warning(self, "Insert Template",
+                                        "Failed to insert template")
+            except Exception as e:
+                QMessageBox.critical(self, "Insert Template Error",
+                                     f"Failed to insert template:\n\n"
+                                     f"Error: {type(e).__name__}: {str(e)}\n\n"
+                                     f"Stack trace:\n{traceback.format_exc()}")
+            return
+
+        items = self.selectedItems()
+        if not items:
+            return
+        row_index = items[0].data(0, Qt.UserRole)
+        if row_index is None:
             return
 
         try:
@@ -1099,81 +1147,94 @@ class OOBTreeWidget(QTreeWidget):
                 return _BRANCH_LEVEL_NAMES[lvl].get(branch, LEVEL_NAMES[lvl - 1])
             return LEVEL_NAMES[lvl - 1] if lvl <= len(LEVEL_NAMES) else f"Lvl {lvl}"
 
-        def build_level(parent_idx: int, cfg_idx: int) -> tuple[list[dict], int]:
+        def build_level(parent_idx: int, cfg_start: int,
+                        parent_branch: str | None = None) -> tuple[list[dict], int]:
             nonlocal synthetic_parent
-            if cfg_idx >= len(config):
-                return [], 0
-            cfg = config[cfg_idx]
-            if cfg["min"] == 0 and cfg["max"] == 0:
-                return [], 0
-            template = cfg["template"]
-            if template is None:
+            if cfg_start >= len(config):
                 return [], 0
 
-            lvl = cfg["level"]
-            branch = cfg.get("branch")
-            count = random.randint(cfg["min"], cfg["max"])
-            counts_by_level[lvl] = counts_by_level.get(lvl, 0) + count
-            counts_by_cfg[cfg_idx] = counts_by_cfg.get(cfg_idx, 0) + count
+            current_level = config[cfg_start]["level"]
+
+            level_cfgs = []
+            cfg_idx = cfg_start
+            while cfg_idx < len(config) and config[cfg_idx]["level"] == current_level:
+                level_cfgs.append((cfg_idx, config[cfg_idx]))
+                cfg_idx += 1
+
             nodes = []
             level_head = 0
 
-            for _ in range(count):
-                # Copy template row
-                columns = list(self.data.df.columns) if self.data.df is not None else []
-                row_dict = {col: template["row"].get(col, "") for col in columns}
+            for cfg_idx_entry, cfg in level_cfgs:
+                if cfg["min"] == 0 and cfg["max"] == 0:
+                    continue
+                template = cfg["template"]
+                if template is None:
+                    continue
 
-                # Set hierarchy columns for the preview row
-                source_level = template["level"]
-                for i, hcol in enumerate(HIERARCHY_COLS):
-                    if i == source_level - 1:
-                        row_dict[hcol] = 1
-                    else:
-                        row_dict[hcol] = 0
+                branch = cfg.get("branch")
+                if parent_branch is not None and branch != parent_branch:
+                    continue
 
-                # Resolve modifiers using synthetic parent index
-                self.data._resolve_modifiers(row_dict, parent_idx)
+                count = random.randint(cfg["min"], cfg["max"])
+                counts_by_level[current_level] = counts_by_level.get(current_level, 0) + count
+                counts_by_cfg[cfg_idx_entry] = counts_by_cfg.get(cfg_idx_entry, 0) + count
 
-                # Convert INT_COLUMNS
-                for col in INT_COLUMNS:
-                    if col in row_dict:
-                        try:
-                            row_dict[col] = int(float(str(row_dict[col]))) if str(row_dict[col]).strip() else 0
-                        except (ValueError, TypeError):
-                            row_dict[col] = 0
+                for _ in range(count):
+                    # Copy template row
+                    columns = list(self.data.df.columns) if self.data.df is not None else []
+                    row_dict = {col: template["row"].get(col, "") for col in columns}
 
-                # Extract display values
-                name = str(row_dict.get("NAME1", "") or row_dict.get("Name", "") or "?")
-                hc = row_dict.get("Head Count", 0)
-                exp = row_dict.get("Experience", 0)
-                side_raw = row_dict.get("SIDE 1", 0)
-                try:
-                    side = int(side_raw)
-                except (ValueError, TypeError):
-                    side = 0
+                    # Set hierarchy columns for the preview row
+                    source_level = template["level"]
+                    for i, hcol in enumerate(HIERARCHY_COLS):
+                        if i == source_level - 1:
+                            row_dict[hcol] = 1
+                        else:
+                            row_dict[hcol] = 0
 
-                level_name = _level_display_name(lvl, branch)
-                level_info_str = f"{level_name} (1)"
+                    # Resolve modifiers using synthetic parent index
+                    self.data._resolve_modifiers(row_dict, parent_idx)
 
-                node = {
-                    "name": name,
-                    "level": lvl,
-                    "branch": branch,
-                    "level_info": level_info_str,
-                    "head_count": hc,
-                    "experience": exp,
-                    "side": side,
-                    "resolved_row": row_dict,
-                    "children": [],
-                }
+                    # Convert INT_COLUMNS
+                    for col in INT_COLUMNS:
+                        if col in row_dict:
+                            try:
+                                row_dict[col] = int(float(str(row_dict[col]))) if str(row_dict[col]).strip() else 0
+                            except (ValueError, TypeError):
+                                row_dict[col] = 0
 
-                # Recurse for next level
-                synthetic_parent -= 1
-                child_nodes, child_head = build_level(synthetic_parent, cfg_idx + 1)
-                node["children"] = child_nodes
+                    # Extract display values
+                    name = str(row_dict.get("NAME1", "") or row_dict.get("Name", "") or "?")
+                    hc = row_dict.get("Head Count", 0)
+                    exp = row_dict.get("Experience", 0)
+                    side_raw = row_dict.get("SIDE 1", 0)
+                    try:
+                        side = int(side_raw)
+                    except (ValueError, TypeError):
+                        side = 0
 
-                level_head += hc + child_head
-                nodes.append(node)
+                    level_name = _level_display_name(current_level, branch)
+                    level_info_str = f"{level_name} (1)"
+
+                    node = {
+                        "name": name,
+                        "level": current_level,
+                        "branch": branch,
+                        "level_info": level_info_str,
+                        "head_count": hc,
+                        "experience": exp,
+                        "side": side,
+                        "resolved_row": row_dict,
+                        "children": [],
+                    }
+
+                    synthetic_parent -= 1
+                    child_nodes, child_head = build_level(
+                        synthetic_parent, cfg_idx, parent_branch=branch)
+                    node["children"] = child_nodes
+
+                    level_head += hc + child_head
+                    nodes.append(node)
 
             return nodes, level_head
 
