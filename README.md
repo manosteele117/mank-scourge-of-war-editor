@@ -5,7 +5,7 @@ A scenario and Order of Battle (OOB) editor for **Scourge of War - Remastered**.
 ## Prerequisites
 
 - **Python 3.10+**
-- **Scourge of War - Remastered** installed via Steam
+- **Scourge of War - (Remastered or Gettysburg)** installed via Steam
 
 ## Installation
 
