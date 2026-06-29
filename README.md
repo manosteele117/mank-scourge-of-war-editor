@@ -11,17 +11,17 @@ A scenario and Order of Battle (OOB) editor for **Scourge of War - Remastered**.
 
 1. Clone or download this repository.
 
-2. Install Python dependencies:
-   ```
-   pip install PySide6 pandas numpy Pillow matplotlib
-   ```
+2. Install Application and Dependencies
+```
+Double click 'run.bat'
+```
 
 ## Basic Use
 
 ### Launch
 
 ```
-python main.py
+Double click 'run.bat'
 ```
 
 

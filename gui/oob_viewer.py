@@ -176,7 +176,7 @@ class OOBViewer(QMainWindow):
     def __init__(self, csv_path=None):
         super().__init__()
 
-        self.setWindowTitle("Mank Scourge of War Editor - v0.1")
+        self.setWindowTitle("Mank Scourge of War Editor - v0.2")
         self.resize(1400, 900)
 
         self.data = OOBData()
@@ -397,6 +397,7 @@ class OOBViewer(QMainWindow):
 
     def load_csv(self, path):
         try:
+            self._oob_path = path
             self.data.load_csv(path)
             self.print_validation_report()
             self.map_viewer._clear_all_units()

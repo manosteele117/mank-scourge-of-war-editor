@@ -815,6 +815,12 @@ class OOBMapWidget(QWidget):
             scene_pos = self.world_to_scene(unit_item.world_x, unit_item.world_y)
             unit_item.setPos(scene_pos)
 
+    def _update_placed_objective_positions(self):
+        for obj_item in self.placed_objectives:
+            scene_pos = self.world_to_scene(obj_item.world_x, obj_item.world_y)
+            obj_item.setPos(scene_pos)
+            obj_item._rebuild_scene_geometry()
+
     def _update_unit_count(self):
         count = len(self.placed_units)
         self.unit_count_label.setText(f"Units: {count}")
@@ -1496,6 +1502,11 @@ class OOBMapWidget(QWidget):
                     logger.warning("Failed to get unit_info for row %d", row_index, exc_info=True)
                     continue
 
+                # Override formation with the one from the scenario file
+                scenario_formation = unit.get("formation", "")
+                if scenario_formation:
+                    unit_info = unit_info._replace(formation=scenario_formation)
+
                 world_x = unit.get("world_x", 0)
                 world_y = unit.get("world_y", 0)
                 self._place_unit(unit_info, world_x, world_y)
@@ -1533,3 +1544,4 @@ class OOBMapWidget(QWidget):
         if self.minimap_pixmap is not None:
             self.display_minimap()
             self._update_placed_unit_positions()
+            self._update_placed_objective_positions()
