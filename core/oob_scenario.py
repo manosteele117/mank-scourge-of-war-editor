@@ -1,4 +1,4 @@
-"""Scenario export: transforms OOB data into game-compatible scenario files.
+"""Scenario import/export: transforms OOB data into game-compatible scenario files.
 
 Extracted from OOBData.save_scenario() and the standalone _copy_templates().
 """
@@ -313,3 +313,229 @@ def _copy_top_level_templates(scenario_dir: str):
         src = os.path.join(templates_dir, template_file)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(scenario_dir, template_file))
+
+
+# ── Load helpers ────────────────────────────────────────────────────────
+
+def _resolve_scenarios_dir(folder: str) -> str:
+    """Resolve the inner Scenarios/<name> directory from a user-selected folder.
+
+    Handles two cases:
+    - User selected an outer folder containing Scenarios/<name>/
+    - User selected the inner scenario folder directly (contains scenario.csv)
+
+    Returns the resolved path, or empty string if invalid.
+    """
+    csv_path = os.path.join(folder, "scenario.csv")
+    if os.path.isfile(csv_path):
+        return folder
+
+    scenarios_sub = os.path.join(folder, "Scenarios")
+    if os.path.isdir(scenarios_sub):
+        for name in sorted(os.listdir(scenarios_sub)):
+            sub = os.path.join(scenarios_sub, name)
+            if os.path.isdir(sub) and os.path.isfile(os.path.join(sub, "scenario.csv")):
+                return sub
+
+    return ""
+
+
+def load_scenario_csv(scenarios_dir: str) -> dict:
+    """Parse scenario.csv and return structured data.
+
+    Returns:
+        {
+            "oob_filename": str,
+            "units": [
+                {
+                    "id": str,
+                    "world_x": int,
+                    "world_y": int,
+                    "dir_south": float,
+                    "dir_east": float,
+                    "formation": str,
+                    "head_count": int,
+                },
+                ...
+            ],
+        }
+    """
+    csv_path = os.path.join(scenarios_dir, "scenario.csv")
+    with open(csv_path, "r", encoding="cp1252") as f:
+        lines = f.readlines()
+
+    if len(lines) < 2:
+        raise ValueError("scenario.csv has fewer than 2 lines")
+
+    header_line = lines[0].strip()
+    headers = [h.strip() for h in header_line.split(",")]
+    header_lower = {h.lower(): i for i, h in enumerate(headers)}
+
+    oob_filename = ""
+
+    # Detect format by first header column
+    first_col = headers[0].upper() if headers else ""
+    is_game_format = first_col == "SANDBOXOOB"
+
+    # Parse MASTER line (line index 1)
+    master_parts = lines[1].strip().split(",")
+    if master_parts and master_parts[0].upper() == "MASTER" and len(master_parts) >= 2:
+        oob_filename = master_parts[1].strip()
+    else:
+        # MASTER line might not exist; check if the second column of a data row
+        # references an OOB file. Fallback: no MASTER found.
+        pass
+
+    units = []
+    for line in lines[2:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.split(",")
+
+        if is_game_format:
+            # Game format: SANDBOXOOB,ARMY,CORPS,DIV,BGDE,REG,CMP,ID,...
+            #   loc x, loc z = columns 16,17;  dir x, dir z = columns 14,15
+            #   Formation = column 20;  Head Count = column 21
+            def _get(idx, default=""):
+                return parts[idx].strip() if idx < len(parts) else default
+
+            unit_id = _get(header_lower.get("id", 7))
+            world_x = _safe_int(_get(header_lower.get("loc x", 16)))
+            world_y = _safe_int(_get(header_lower.get("loc z", 17)))
+            dir_east = _safe_float(_get(header_lower.get("dir x", 14)))
+            dir_south = _safe_float(_get(header_lower.get("dir z", 15)))
+            formation = _get(header_lower.get("formation", 20))
+            head_count = _safe_int(_get(header_lower.get("head count", 21)))
+        else:
+            # Editor format: userName,id,sideIndex,...,south,east,...
+            def _get(key, default=""):
+                idx = header_lower.get(key)
+                if idx is None or idx >= len(parts):
+                    return default
+                return parts[idx].strip()
+
+            unit_id = _get("id")
+            world_x = _safe_int(_get("east"))
+            world_y = _safe_int(_get("south"))
+            dir_south = _safe_float(_get("dirsouth"))
+            dir_east = _safe_float(_get("direast"))
+            formation = _get("formation")
+            head_count = _safe_int(_get("headcount"))
+
+        if not unit_id:
+            continue
+
+        units.append({
+            "id": unit_id,
+            "world_x": world_x,
+            "world_y": world_y,
+            "dir_south": dir_south,
+            "dir_east": dir_east,
+            "formation": formation,
+            "head_count": head_count,
+        })
+
+    return {"oob_filename": oob_filename, "units": units}
+
+
+def load_maplocations_csv(scenarios_dir: str) -> list:
+    """Parse maplocations.csv and return a list of objective field dicts."""
+    csv_path = os.path.join(scenarios_dir, "maplocations.csv")
+    if not os.path.isfile(csv_path):
+        return []
+
+    with open(csv_path, "r", encoding="cp1252") as f:
+        lines = f.readlines()
+
+    if not lines:
+        return []
+
+    headers = [h.strip() for h in lines[0].strip().split(",")]
+    objectives = []
+    for line in lines[1:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.split(",")
+        fields = {}
+        for i, col in enumerate(headers):
+            fields[col] = parts[i].strip() if i < len(parts) else ""
+        objectives.append(fields)
+
+    return objectives
+
+
+def load_scenario_ini(scenarios_dir: str) -> dict:
+    """Parse scenario.ini and return scenario settings.
+
+    Returns:
+        {
+            "map_name": str,
+            "start_time": str,
+            "type": str,
+            "victory_conditions": {label: points_str, ...},
+        }
+    """
+    ini_path = os.path.join(scenarios_dir, "scenario.ini")
+    result = {"map_name": "", "start_time": "", "type": "", "victory_conditions": {}}
+
+    if not os.path.isfile(ini_path):
+        return result
+
+    with open(ini_path, "r", encoding="cp1252") as f:
+        lines = f.readlines()
+
+    in_section = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_section = stripped[1:-1].lower()
+        elif in_section == "init":
+            if stripped.lower().startswith("map="):
+                result["map_name"] = stripped.split("=", 1)[1].strip()
+            elif stripped.lower().startswith("starttime="):
+                result["start_time"] = stripped.split("=", 1)[1].strip()
+            elif stripped.lower().startswith("type="):
+                result["type"] = stripped.split("=", 1)[1].strip().upper()
+        elif in_section and in_section.startswith("end"):
+            if stripped.lower().startswith("grade="):
+                vc_label = _vc_section_to_label(in_section)
+                if vc_label:
+                    result["victory_conditions"][vc_label] = stripped.split("=", 1)[1].strip()
+
+    return result
+
+
+def load_intro_text(scenarios_dir: str) -> str:
+    """Read EnglishScenIntro.txt and return raw game-format text."""
+    intro_path = os.path.join(scenarios_dir, "EnglishScenIntro.txt")
+    if not os.path.isfile(intro_path):
+        return ""
+    with open(intro_path, "r", encoding="cp1252") as f:
+        return f.read()
+
+
+# ── Internal helpers ────────────────────────────────────────────────────
+
+def _safe_int(value: str, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_float(value: str, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _vc_section_to_label(section: str) -> str:
+    """Map an INI section name like 'endmajwin' to a display label like 'Major Victory'."""
+    section = section.lower()
+    for label, sec in VC_SECTION_MAP.items():
+        if sec.lower() == section:
+            return label
+    return ""

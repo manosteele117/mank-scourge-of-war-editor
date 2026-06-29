@@ -261,6 +261,28 @@ class ScenarioTab(QWidget):
         return {label: edit.text().strip()
                 for label, edit in self.victory_edits.items()}
 
+    # ── Setters ─────────────────────────────────────────────────
+
+    def set_scenario_name(self, name: str):
+        self.scenario_name_edit.setText(name)
+
+    def set_start_time(self, hour: int, minute: int):
+        self.hour_spin.setValue(hour)
+        self.minute_spin.setValue(minute)
+
+    def set_type(self, type_str: str):
+        idx = self.type_combo.findText(type_str.upper())
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
+
+    def set_victory_conditions(self, conditions: dict):
+        for label, edit in self.victory_edits.items():
+            if label in conditions:
+                edit.setText(str(conditions[label]))
+
+    def set_intro_text(self, game_text: str):
+        self.intro_editor.set_game_text(game_text)
+
     # ── Intro text editor ────────────────────────────────────────
 
     def refresh_intro_editor(self):

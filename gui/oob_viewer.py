@@ -215,6 +215,10 @@ class OOBViewer(QMainWindow):
         self.save_scenario_button.setEnabled(False)
         controls_layout.addWidget(self.save_scenario_button)
 
+        self.load_scenario_button = QPushButton("Load Scenario")
+        self.load_scenario_button.clicked.connect(self.load_scenario_dialog)
+        controls_layout.addWidget(self.load_scenario_button)
+
         self.validate_button = QPushButton("Validate OOB")
         self.validate_button.clicked.connect(self.show_validation_report)
         self.validate_button.setEnabled(False)
@@ -511,6 +515,112 @@ class OOBViewer(QMainWindow):
                                  f"Failed to save scenario to:\n{scenario_dir}\n\n"
                                  f"Error: {type(e).__name__}: {str(e)}\n\n"
                                  f"Stack trace:\n{traceback.format_exc()}")
+
+    def load_scenario_dialog(self):
+        """Load an existing scenario folder into the editor."""
+        from core.oob_scenario import (
+            _resolve_scenarios_dir, load_scenario_csv, load_maplocations_csv,
+            load_scenario_ini, load_intro_text,
+        )
+
+        folder = QFileDialog.getExistingDirectory(self, "Select Scenario Folder")
+        if not folder:
+            return
+
+        scenarios_dir = _resolve_scenarios_dir(folder)
+        if not scenarios_dir:
+            QMessageBox.warning(self, "Invalid Folder",
+                                "Could not find a valid scenario folder.\n\n"
+                                "Select a folder that contains either:\n"
+                                "  - A Scenarios/<name>/ subdirectory, or\n"
+                                "  - A scenario.csv file directly.")
+            return
+
+        # ── Step 1: Parse scenario.csv ─────────────────────────────
+        try:
+            scenario_data = load_scenario_csv(scenarios_dir)
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error",
+                                 f"Failed to parse scenario.csv:\n{e}\n\n"
+                                 f"{traceback.format_exc()}")
+            return
+
+        oob_filename = scenario_data.get("oob_filename", "")
+        if not oob_filename:
+            QMessageBox.warning(self, "No OOB Reference",
+                                "scenario.csv does not contain a MASTER line "
+                                "with an OOB filename reference.")
+            return
+
+        # ── Step 2: Validate OOB ──────────────────────────────────
+        current_oob = os.path.basename(self._oob_path) if self._oob_path else ""
+        if oob_filename != current_oob:
+            QMessageBox.warning(self, "OOB Mismatch",
+                                f"This scenario requires OOB:\n  {oob_filename}\n\n"
+                                f"Currently loaded:\n  {current_oob or '(none)'}\n\n"
+                                f"Please load the correct OOB first.")
+            return
+
+        # ── Step 3: Parse scenario.ini ────────────────────────────
+        ini_data = load_scenario_ini(scenarios_dir)
+
+        # ── Step 4: Validate Map ──────────────────────────────────
+        ini_map_name = ini_data.get("map_name", "")
+        current_map = ""
+        if self.map_viewer.map_ini_path:
+            current_map = str(self.map_viewer.map_ini_path.stem)
+        if ini_map_name and ini_map_name != current_map:
+            QMessageBox.warning(self, "Map Mismatch",
+                                f"This scenario requires map:\n  {ini_map_name}\n\n"
+                                f"Currently loaded:\n  {current_map or '(none)'}\n\n"
+                                f"Please load the correct map first.")
+            return
+
+        # ── Step 5: Clear existing data ───────────────────────────
+        self.map_viewer._clear_all_units()
+        self.map_viewer.clear_all_objectives()
+
+        # ── Step 6: Place units ───────────────────────────────────
+        unit_count = 0
+        if scenario_data.get("units"):
+            self.map_viewer.load_units_from_scenario(
+                scenario_data["units"], self.data)
+            unit_count = len(self.map_viewer.placed_units)
+
+        # ── Step 7: Load objectives ───────────────────────────────
+        obj_count = 0
+        objectives_fields = load_maplocations_csv(scenarios_dir)
+        if objectives_fields:
+            self.map_viewer.load_objectives_from_data(objectives_fields)
+            obj_count = len(self.map_viewer.placed_objectives)
+
+        # ── Step 8: Load intro text ───────────────────────────────
+        intro_text = load_intro_text(scenarios_dir)
+        if intro_text:
+            self.scenario.set_intro_text(intro_text)
+
+        # ── Step 9: Apply scenario settings ───────────────────────
+        if ini_data.get("start_time"):
+            parts = ini_data["start_time"].split(":")
+            if len(parts) >= 2:
+                try:
+                    self.scenario.set_start_time(int(parts[0]), int(parts[1]))
+                except ValueError:
+                    pass
+        if ini_data.get("type"):
+            self.scenario.set_type(ini_data["type"])
+        if ini_data.get("victory_conditions"):
+            self.scenario.set_victory_conditions(ini_data["victory_conditions"])
+
+        # ── Step 10: Refresh UI ───────────────────────────────────
+        self.tree.populate()
+        self.tree.set_placed_row_indices(self.map_viewer.placed_row_indices)
+        self.scenario.refresh_objectives()
+
+        QMessageBox.information(self, "Load Successful",
+                                f"Scenario loaded from:\n{scenarios_dir}\n\n"
+                                f"Units placed: {unit_count}\n"
+                                f"Objectives placed: {obj_count}")
 
     # ── Validation ──────────────────────────────────────────────────
 

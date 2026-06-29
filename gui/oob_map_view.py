@@ -38,6 +38,13 @@ def set_debug_formation_plot(enabled: bool):
     DEBUG_FORMATION_PLOT = enabled
 
 
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 class OOBMapGraphicsView(QGraphicsView, ZoomableGraphicsView):
     """Custom graphics view for the minimap with placement mode support."""
     def __init__(self, scene, map_widget, parent=None):
@@ -1441,6 +1448,85 @@ class OOBMapWidget(QWidget):
 
     def _on_objective_moved_from_item(self, objective_id: int, world_x: int, world_y: int):
         self.objective_moved.emit(objective_id, world_x, world_y)
+
+    # ── Bulk load helpers ───────────────────────────────────────
+
+    def clear_all_objectives(self):
+        """Remove all placed objectives from the map."""
+        for item in list(self.placed_objectives):
+            self.minimap_scene.removeItem(item)
+        self.placed_objectives.clear()
+        self.placed_objective_ids.clear()
+        self.objectives_by_id.clear()
+        self._next_objective_id = 1
+
+    def load_units_from_scenario(self, scenario_units: list, oob_data):
+        """Place units onto the map from parsed scenario.csv data.
+
+        Args:
+            scenario_units: List of dicts from load_scenario_csv()["units"].
+            oob_data: OOBData instance with loaded DataFrame.
+        """
+        if oob_data.df is None or len(oob_data.df) == 0:
+            return
+
+        # Build ID -> row_index lookup
+        id_to_row = {}
+        if "ID" in oob_data.df.columns:
+            for idx in range(len(oob_data.df)):
+                row_id = str(oob_data.df.iloc[idx].get("ID", ""))
+                if row_id:
+                    id_to_row[row_id] = idx
+
+        self._suppress_placed_signal = True
+        try:
+            for unit in scenario_units:
+                unit_id = str(unit.get("id", ""))
+                if unit_id not in id_to_row:
+                    logger.warning("Unit ID '%s' not found in OOB, skipping", unit_id)
+                    continue
+
+                row_index = id_to_row[unit_id]
+                if row_index in self.placed_row_indices:
+                    continue
+
+                try:
+                    unit_info = oob_data.unit_info(row_index)
+                except Exception:
+                    logger.warning("Failed to get unit_info for row %d", row_index, exc_info=True)
+                    continue
+
+                world_x = unit.get("world_x", 0)
+                world_y = unit.get("world_y", 0)
+                self._place_unit(unit_info, world_x, world_y)
+
+                # Set rotation from direction vectors
+                dir_south = unit.get("dir_south", 0.0)
+                dir_east = unit.get("dir_east", 0.0)
+                if dir_south != 0.0 or dir_east != 0.0:
+                    rotation = math.degrees(math.atan2(dir_east, -dir_south))
+                    item = self.placed_by_row.get(row_index)
+                    if item:
+                        item.setRotation(rotation)
+        finally:
+            self._suppress_placed_signal = False
+            self._update_unit_count()
+
+    def load_objectives_from_data(self, objectives_fields: list):
+        """Place objectives onto the map from parsed maplocations.csv data.
+
+        Args:
+            objectives_fields: List of field dicts from load_maplocations_csv().
+        """
+        for fields in objectives_fields:
+            # Coordinate convention: loc x = north (world_y), loc z = east (world_x)
+            try:
+                world_y = _safe_int(fields.get("loc x", "0"))
+                world_x = _safe_int(fields.get("loc z", "0"))
+            except (ValueError, TypeError):
+                continue
+            name = fields.get("Name", "Objective")
+            self.add_objective(world_x, world_y, name=name, fields=fields)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
