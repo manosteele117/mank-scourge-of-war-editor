@@ -1488,8 +1488,7 @@ class OOBMapWidget(QWidget):
         try:
             for unit in scenario_units:
                 unit_id = str(unit.get("id", ""))
-                if unit_id not in id_to_row:
-                    logger.warning("Unit ID '%s' not found in OOB, skipping", unit_id)
+                if not unit_id or unit_id not in id_to_row:
                     continue
 
                 row_index = id_to_row[unit_id]
@@ -1499,7 +1498,6 @@ class OOBMapWidget(QWidget):
                 try:
                     unit_info = oob_data.unit_info(row_index)
                 except Exception:
-                    logger.warning("Failed to get unit_info for row %d", row_index, exc_info=True)
                     continue
 
                 # Override formation with the one from the scenario file

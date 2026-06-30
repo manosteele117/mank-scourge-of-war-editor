@@ -343,6 +343,11 @@ def _resolve_scenarios_dir(folder: str) -> str:
 def load_scenario_csv(scenarios_dir: str) -> dict:
     """Parse scenario.csv and return structured data.
 
+    The column headers may vary (e.g. userName/Name, id/ID, south/loc x),
+    but the fields are always in the same positional order matching
+    ``SCENARIO_COLUMNS``. The MASTER line and comment lines (starting with
+    a comma) are skipped when extracting unit rows.
+
     Returns:
         {
             "oob_filename": str,
@@ -364,79 +369,37 @@ def load_scenario_csv(scenarios_dir: str) -> dict:
     with open(csv_path, "r", encoding="cp1252") as f:
         lines = f.readlines()
 
-    if len(lines) < 2:
-        raise ValueError("scenario.csv has fewer than 2 lines")
-
-    header_line = lines[0].strip()
-    headers = [h.strip() for h in header_line.split(",")]
-    header_lower = {h.lower(): i for i, h in enumerate(headers)}
+    if not lines:
+        raise ValueError("scenario.csv is empty")
 
     oob_filename = ""
-
-    # Detect format by first header column
-    first_col = headers[0].upper() if headers else ""
-    is_game_format = first_col == "SANDBOXOOB"
-
-    # Parse MASTER line (line index 1)
-    master_parts = lines[1].strip().split(",")
-    if master_parts and master_parts[0].upper() == "MASTER" and len(master_parts) >= 2:
-        oob_filename = master_parts[1].strip()
-    else:
-        # MASTER line might not exist; check if the second column of a data row
-        # references an OOB file. Fallback: no MASTER found.
-        pass
-
     units = []
-    for line in lines[2:]:
+    for line in lines[1:]:
         stripped = line.strip()
-        if not stripped:
+        if not stripped or stripped.startswith(","):
             continue
         parts = stripped.split(",")
 
-        if is_game_format:
-            # Game format: SANDBOXOOB,ARMY,CORPS,DIV,BGDE,REG,CMP,ID,...
-            #   loc x, loc z = columns 16,17;  dir x, dir z = columns 14,15
-            #   Formation = column 20;  Head Count = column 21
-            def _get(idx, default=""):
-                return parts[idx].strip() if idx < len(parts) else default
-
-            unit_id = _get(header_lower.get("id", 7))
-            world_x = _safe_int(_get(header_lower.get("loc x", 16)))
-            world_y = _safe_int(_get(header_lower.get("loc z", 17)))
-            dir_east = _safe_float(_get(header_lower.get("dir x", 14)))
-            dir_south = _safe_float(_get(header_lower.get("dir z", 15)))
-            formation = _get(header_lower.get("formation", 20))
-            head_count = _safe_int(_get(header_lower.get("head count", 21)))
-        else:
-            # Editor format: userName,id,sideIndex,...,south,east,...
-            def _get(key, default=""):
-                idx = header_lower.get(key)
-                if idx is None or idx >= len(parts):
-                    return default
-                return parts[idx].strip()
-
-            unit_id = _get("id")
-            world_x = _safe_int(_get("east"))
-            world_y = _safe_int(_get("south"))
-            dir_south = _safe_float(_get("dirsouth"))
-            dir_east = _safe_float(_get("direast"))
-            formation = _get("formation")
-            head_count = _safe_int(_get("headcount"))
-
-        if not unit_id:
+        if parts[0].upper() == "MASTER":
+            if len(parts) >= 2:
+                oob_filename = parts[1].strip()
             continue
 
         units.append({
-            "id": unit_id,
-            "world_x": world_x,
-            "world_y": world_y,
-            "dir_south": dir_south,
-            "dir_east": dir_east,
-            "formation": formation,
-            "head_count": head_count,
+            "id": _field(parts, SCENARIO_COLUMNS.index("id")),
+            "world_x": int(_safe_float(_field(parts, SCENARIO_COLUMNS.index("east")))),
+            "world_y": int(_safe_float(_field(parts, SCENARIO_COLUMNS.index("south")))),
+            "dir_south": _safe_float(_field(parts, SCENARIO_COLUMNS.index("dirSouth"))),
+            "dir_east": _safe_float(_field(parts, SCENARIO_COLUMNS.index("dirEast"))),
+            "formation": _field(parts, SCENARIO_COLUMNS.index("formation")),
+            "head_count": _safe_int(_field(parts, SCENARIO_COLUMNS.index("headCount"))),
         })
 
     return {"oob_filename": oob_filename, "units": units}
+
+
+def _field(parts: list, idx: int) -> str:
+    return parts[idx].strip() if idx < len(parts) else ""
 
 
 def load_maplocations_csv(scenarios_dir: str) -> list:

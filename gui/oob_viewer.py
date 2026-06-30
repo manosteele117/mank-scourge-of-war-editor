@@ -570,7 +570,7 @@ class OOBViewer(QMainWindow):
         current_map = ""
         if self.map_viewer.map_ini_path:
             current_map = str(self.map_viewer.map_ini_path.stem)
-        if ini_map_name and ini_map_name != current_map:
+        if ini_map_name and ini_map_name.lower() != current_map.lower():
             QMessageBox.warning(self, "Map Mismatch",
                                 f"This scenario requires map:\n  {ini_map_name}\n\n"
                                 f"Currently loaded:\n  {current_map or '(none)'}\n\n"
