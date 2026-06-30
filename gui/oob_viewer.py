@@ -176,7 +176,7 @@ class OOBViewer(QMainWindow):
     def __init__(self, csv_path=None):
         super().__init__()
 
-        self.setWindowTitle("Mank Scourge of War Editor - v0.2")
+        self.setWindowTitle("Mank Scourge of War Editor - v0.2.1")
         self.resize(1400, 900)
 
         self.data = OOBData()
